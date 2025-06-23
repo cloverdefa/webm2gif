@@ -3,6 +3,8 @@
 
 # webm2gif
 
+Support webm and webp files to gif.
+
 ## Download Link
 https://github.com/user-attachments/files/20863507/wbem2gif.zip
 

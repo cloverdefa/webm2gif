@@ -13,9 +13,6 @@ Usage:
 Run webm2gif.exe directly and select your folder then click on start. Just enjoy it.
 ```
 <div style="width: 80%; margin: auto;">
-  <img src="IMG/view.png" style="width: 100%; height: auto;" alt="Lily58 Keyboard">
-  
+  <img src="IMG/view.png" style="width: 60%; height: auto;" alt="Webm2Gif">
 </div>
-
-![image](https://github.com/cloverdefa/webm2gif/shot1.png)
 

@@ -13,7 +13,6 @@ import zipfile
 def detect_lang():
     try:
         lang = None
-        # 相容不同Python版本
         try:
             lang = locale.getlocale()[0]
         except Exception:
@@ -30,7 +29,7 @@ def detect_lang():
         pass
     return "en"
 
-lang = "en"
+lang = detect_lang()
 
 L = {
     "zh": {
@@ -51,22 +50,27 @@ L = {
         "magick_not_found_detail": "ImageMagick 下載/解壓縮異常。",
         "error": "錯誤",
         "not_found_folder": "未找到資料夾: {}",
-        "success": "成功: {}",
-        "magick_convert_failed": "ImageMagick 轉換失敗: {}",
+        "success": "✓  {}",
+        "magick_convert_failed": "✗  轉換失敗: {}",
         "magick_missing_short": "ImageMagick（magick.exe）缺失，已自動下載和解壓縮。如有問題請手動檢查。",
         "unsupported_type": "不支援的檔案類型: {}",
         "tip": "提示",
         "choose_folder": "請選擇來源資料夾！",
         "not_found_files": "未找到可轉換的檔案！",
-        "source_folder": "來源資料夾選擇",
+        "source_folder": "來源資料夾",
         "choose_folder_btn": "選擇資料夾",
-        "param": "參數設定",
-        "gif_height": "GIF 高度縮放為",
-        "result": "轉換結果",
-        "clear": "清空結果",
-        "open_gif": "開啟 GIF 資料夾",
+        "param_resize": "縮放高度",
+        "result": "轉換紀錄",
+        "clear": "清除",
+        "open_gif": "開啟輸出資料夾",
         "start": "開始轉換",
-        "main_title": "Webm2Gif v1.0 - lilinth/webm2gif"
+        "main_title": "Webm2Gif",
+        "subtitle": "影片轉 GIF 工具",
+        "no_folder": "尚未選擇資料夾",
+        "ready": "就緒",
+        "converting": "轉換中…",
+        "done": "完成",
+        "files_found": "找到 {} 個檔案",
     },
     "en": {
         "download_title": "Downloading ImageMagick ...",
@@ -77,7 +81,7 @@ L = {
         "extract_failed": "Extraction Error",
         "extract_failed_detail": "Failed to extract ImageMagick.",
         "magick_missing_title": "ImageMagick Missing",
-        "magick_missing_msg": "ImageMagick (magick.exe) not found. Download and extract the portable version now? (about 45MB, no installation required after download)",
+        "magick_missing_msg": "ImageMagick (magick.exe) not found. Download and extract the portable version now?\n(about 45MB, no installation required)",
         "operation_canceled": "Operation canceled",
         "magick_missing_stop": "ImageMagick not found, conversion stopped.",
         "magick_ready": "ImageMagick Ready",
@@ -86,22 +90,27 @@ L = {
         "magick_not_found_detail": "ImageMagick download/extract error.",
         "error": "Error",
         "not_found_folder": "Folder not found: {}",
-        "success": "Success: {}",
-        "magick_convert_failed": "ImageMagick Conversion Failed: {}",
-        "magick_missing_short": "ImageMagick (magick.exe) missing. Downloaded and extracted automatically. Check manually if issues persist.",
+        "success": "✓  {}",
+        "magick_convert_failed": "✗  Conversion Failed: {}",
+        "magick_missing_short": "ImageMagick (magick.exe) missing. Downloaded and extracted automatically.",
         "unsupported_type": "Unsupported file type: {}",
         "tip": "Tip",
         "choose_folder": "Please select a source folder!",
         "not_found_files": "No convertible files found!",
         "source_folder": "Source Folder",
-        "choose_folder_btn": "Choose Folder",
-        "param": "Parameters",
-        "gif_height": "Resize GIF height to",
-        "result": "Results",
+        "choose_folder_btn": "Browse",
+        "param_resize": "Resize height",
+        "result": "Conversion Log",
         "clear": "Clear",
-        "open_gif": "Open GIF Folder",
-        "start": "Start Conversion",
-        "main_title": "Webm2Gif v1.0 - lilinth/webm2gif"
+        "open_gif": "Open Output Folder",
+        "start": "Convert",
+        "main_title": "Webm2Gif",
+        "subtitle": "Video to GIF Converter",
+        "no_folder": "No folder selected",
+        "ready": "Ready",
+        "converting": "Converting…",
+        "done": "Done",
+        "files_found": "{} files found",
     }
 }
 T = L[lang]
@@ -111,6 +120,25 @@ VALID_EXTENSIONS = {".webp", ".webm"}
 IMAGEMAGICK_ZIP_URL = "https://imagemagick.org/archive/binaries/ImageMagick-7.1.1-47-portable-Q16-x64.zip"
 IMAGEMAGICK_ZIP_NAME = "ImageMagick-7.1.1-47-portable-Q16-x64.zip"
 IMAGEMAGICK_UNZIP_DIR = "ImageMagick-7.1.1-47-portable-Q16-x64"
+
+# --------- 色票（暖灰 + Teal 強調色）----------
+C = {
+    "bg":        "#F7F6F3",
+    "surface":   "#FFFFFF",
+    "border":    "#E2E0D8",
+    "border2":   "#C8C6BC",
+    "accent":    "#1D9E75",
+    "accent_h":  "#0F6E56",
+    "accent_bg": "#E1F5EE",
+    "text":      "#2C2C2A",
+    "text2":     "#5F5E5A",
+    "text3":     "#888780",
+    "success":   "#3B6D11",
+    "success_bg":"#EAF3DE",
+    "danger":    "#A32D2D",
+    "log_bg":    "#F1EFE8",
+    "btn_fg":    "#FFFFFF",
+}
 
 # --------- 相容PyInstaller資源路徑 ---------
 def resource_path(relative_path):
@@ -134,39 +162,52 @@ def check_and_download_imagemagick_zip(parent=None):
     if exe_candidate:
         return exe_candidate
 
-    if parent is None: parent = tk._default_root
+    if parent is None:
+        parent = tk._default_root
     answer = messagebox.askyesno(
         T["magick_missing_title"], T["magick_missing_msg"], parent=parent
     )
     if not answer:
         messagebox.showinfo(T["operation_canceled"], T["magick_missing_stop"], parent=parent)
         return None
-        
-    if parent is not None:
-        # 假設主視窗有 start_button 全域變數
-        try:
-            start_button.config(state=tk.NORMAL)
-        except Exception:
-            pass
-            
+
     def download_with_progress(url, filename):
         win = tk.Toplevel(parent)
         win.title(T["download_title"])
-        win.geometry("400x140")
+        win.geometry("420x160")
         win.resizable(False, False)
-        tk.Label(win, text=T["downloading"]).pack(pady=10)
-        bar = ttk.Progressbar(win, length=340, mode="determinate")
-        bar.pack(pady=5)
-        percent_label = tk.Label(win, text="0%")
+        win.configure(bg=C["bg"])
+        win.grab_set()
+
+        tk.Label(win, text=T["downloading"],
+                 bg=C["bg"], fg=C["text"],
+                 font=("Segoe UI", 10)).pack(pady=(20, 8))
+
+        bar = ttk.Progressbar(win, length=360, mode="determinate",
+                               style="Accent.Horizontal.TProgressbar")
+        bar.pack(pady=4)
+
+        percent_label = tk.Label(win, text="0%",
+                                 bg=C["bg"], fg=C["text2"],
+                                 font=("Segoe UI", 9))
         percent_label.pack()
+
         cancel_flag = {"cancel": False}
+
         def on_cancel():
             cancel_flag["cancel"] = True
             win.destroy()
-        cancel_btn = ttk.Button(win, text=T["cancel_download"], command=on_cancel)
-        cancel_btn.pack(pady=15, ipadx=18, ipady=6)
-        win.grab_set()
+
+        tk.Button(win, text=T["cancel_download"],
+                  command=on_cancel,
+                  bg=C["surface"], fg=C["text"],
+                  relief="flat", bd=0,
+                  font=("Segoe UI", 9),
+                  padx=14, pady=5,
+                  cursor="hand2").pack(pady=12)
+
         result = {"ok": False}
+
         def download_thread():
             try:
                 with urllib.request.urlopen(url) as response, open(filename, 'wb') as out_file:
@@ -191,22 +232,29 @@ def check_and_download_imagemagick_zip(parent=None):
                             out_file.write(buffer)
                             downloaded += len(buffer)
                             percent = int(downloaded * 100 / total_length)
-                            win.after(0, lambda p=percent: (bar.config(value=p), percent_label.config(text=f"{p}%")))
+                            win.after(0, lambda p=percent: (
+                                bar.config(value=p),
+                                percent_label.config(text=f"{p}%")
+                            ))
                 result["ok"] = True
                 win.after(0, win.destroy)
             except Exception as e:
-                win.after(0, lambda: (win.destroy(), messagebox.showerror(T["download_failed"], T["download_failed_detail"].format(e), parent=parent)))
+                win.after(0, lambda: (
+                    win.destroy(),
+                    messagebox.showerror(T["download_failed"],
+                                         T["download_failed_detail"].format(e),
+                                         parent=parent)
+                ))
+
         threading.Thread(target=download_thread, daemon=True).start()
         parent.wait_window(win)
         return result["ok"] and os.path.exists(filename)
 
-    # 下載
     if not os.path.exists(IMAGEMAGICK_ZIP_NAME):
         ok = download_with_progress(IMAGEMAGICK_ZIP_URL, IMAGEMAGICK_ZIP_NAME)
         if not ok:
             return None
 
-    # 解壓縮
     if not os.path.exists(IMAGEMAGICK_UNZIP_DIR):
         try:
             with zipfile.ZipFile(IMAGEMAGICK_ZIP_NAME, 'r') as zip_ref:
@@ -217,15 +265,14 @@ def check_and_download_imagemagick_zip(parent=None):
 
     exe_candidate = find_magick_exe_recursive(IMAGEMAGICK_UNZIP_DIR)
     if exe_candidate:
-        messagebox.showinfo(
-            T["magick_ready"],
-            T["magick_ready_info"].format(exe_candidate),
-            parent=parent
-        )
+        messagebox.showinfo(T["magick_ready"],
+                            T["magick_ready_info"].format(exe_candidate),
+                            parent=parent)
         return exe_candidate
     else:
         messagebox.showerror(T["magick_not_found"], T["magick_not_found_detail"], parent=parent)
         return None
+
 
 # --------- 開啟GIF資料夾 ---------
 def open_gif_folder(root_folder):
@@ -235,43 +282,47 @@ def open_gif_folder(root_folder):
     except FileNotFoundError:
         messagebox.showerror(T["error"], T["not_found_folder"].format(folder_path))
 
+
 # --------- 統一用magick轉換 ---------
 def convert_file(input_filepath, resize_height, parent=None):
     ext = os.path.splitext(input_filepath)[1].lower()
     if ext not in VALID_EXTENSIONS:
-        return T["unsupported_type"].format(ext)
+        return T["unsupported_type"].format(ext), "warn"
     input_dir = os.path.dirname(input_filepath)
     gif_dir = os.path.join(input_dir, "gif")
     if not os.path.exists(gif_dir):
         os.makedirs(gif_dir)
-    output_filename = os.path.join(gif_dir, os.path.splitext(os.path.basename(input_filepath))[0] + ".gif")
+    output_filename = os.path.join(
+        gif_dir,
+        os.path.splitext(os.path.basename(input_filepath))[0] + ".gif"
+    )
 
     magick_exe = check_and_download_imagemagick_zip(parent)
     if not magick_exe:
-        return T["magick_missing_short"]
+        return T["magick_missing_short"], "warn"
     try:
         cmd = [magick_exe, input_filepath]
         if resize_height:
             cmd.extend(["-resize", f"x{resize_height}"])
         cmd.append(output_filename)
-        # 關鍵參數：禁止cmd視窗彈出
         creationflags = 0
         if os.name == "nt":
             creationflags = subprocess.CREATE_NO_WINDOW
         subprocess.check_call(cmd, creationflags=creationflags)
-        return T["success"].format(os.path.basename(output_filename))
+        return T["success"].format(os.path.basename(output_filename)), "ok"
     except Exception as e:
-        return T["magick_convert_failed"].format(e)
+        return T["magick_convert_failed"].format(e), "err"
+
 
 # --------- 轉換執行緒 ---------
-def start_convert_thread(root, label_source_value, text_result, progressbar, open_gif_folder_button, start_button, checkbox_var, spinbox):
+def start_convert_thread(app):
     def task():
-        start_button.config(state=tk.DISABLED)
-        open_gif_folder_button.config(state=tk.DISABLED)
-        input_folder = label_source_value.cget("text")
-        if not input_folder:
-            messagebox.showinfo(T["tip"], T["choose_folder"], parent=root)
-            start_button.config(state=tk.NORMAL)
+        app.btn_start.config(state=tk.DISABLED)
+        app.btn_open.config(state=tk.DISABLED)
+        input_folder = app.folder_var.get()
+        if not input_folder or input_folder == T["no_folder"]:
+            messagebox.showinfo(T["tip"], T["choose_folder"], parent=app.root)
+            app.btn_start.config(state=tk.NORMAL)
             return
 
         files_to_convert = []
@@ -283,105 +334,304 @@ def start_convert_thread(root, label_source_value, text_result, progressbar, ope
 
         total_files = len(files_to_convert)
         if total_files == 0:
-            messagebox.showinfo(T["tip"], T["not_found_files"], parent=root)
-            start_button.config(state=tk.NORMAL)
+            messagebox.showinfo(T["tip"], T["not_found_files"], parent=app.root)
+            app.btn_start.config(state=tk.NORMAL)
             return
 
-        progressbar["value"] = 0
-        progressbar["maximum"] = total_files
+        app.progressbar["value"] = 0
+        app.progressbar["maximum"] = total_files
+        app.status_var.set(T["converting"])
 
-        resize = spinbox.get() if checkbox_var.get() else None
+        resize = app.height_var.get() if app.resize_var.get() else None
 
         for idx, input_filepath in enumerate(files_to_convert, 1):
-            result = convert_file(input_filepath, resize, parent=root)
-            text_result.insert("end", f"{result}\n")
-            text_result.see("end")
-            progressbar["value"] = idx
-            root.update_idletasks()
+            msg, kind = convert_file(input_filepath, resize, parent=app.root)
+            app.log_insert(msg, kind)
+            app.progressbar["value"] = idx
+            app.root.update_idletasks()
 
-        open_gif_folder_button.config(state=tk.NORMAL)
-        start_button.config(state=tk.NORMAL)
+        app.status_var.set(T["done"])
+        app.btn_open.config(state=tk.NORMAL)
+        app.btn_start.config(state=tk.NORMAL)
 
     threading.Thread(target=task, daemon=True).start()
 
-# --------- 清空 ---------
-def clean_all(text_result, progressbar, open_gif_folder_button):
-    text_result.delete("1.0", "end")
-    progressbar["value"] = 0
-    open_gif_folder_button.config(state=tk.DISABLED)
 
-# --------- 主介面 ---------
-def main():
-    root = tk.Tk()
-    root.title(T["main_title"])
-    root.geometry("560x440")
-    root.resizable(False, False)
-    root.option_add("*Font", ("微軟正黑體", 11) if lang == "zh" else ("Arial", 11))
+# ======================================================
+#  主介面 App 類別
+# ======================================================
+class App:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title(T["main_title"])
+        self.root.geometry("560x590")
+        self.root.resizable(False, False)
+        self.root.configure(bg=C["bg"])
 
-    style = ttk.Style()
-    style.theme_use('clam')
-    style.configure("Accent.TButton", foreground="white", background="#0078d7")
+        self._setup_styles()
+        self._build_ui()
+        self.root.mainloop()
 
-    # 來源資料夾區域
-    folder_frame = ttk.LabelFrame(root, text=T["source_folder"])
-    folder_frame.grid(row=0, column=0, columnspan=3, padx=15, pady=8, sticky="ew")
-    label_source_value = ttk.Label(folder_frame, text="", width=45)
-    label_source_value.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-    def select_folder():
+    # ── TTK 樣式設定 ──────────────────────────────────
+    def _setup_styles(self):
+        s = ttk.Style()
+        s.theme_use("clam")
+
+        s.configure("Accent.Horizontal.TProgressbar",
+                     troughcolor=C["border"],
+                     background=C["accent"],
+                     borderwidth=0,
+                     thickness=6)
+
+        s.configure("App.TCheckbutton",
+                     background=C["surface"],
+                     foreground=C["text"],
+                     font=("Segoe UI", 9),
+                     focuscolor=C["surface"])
+        s.map("App.TCheckbutton",
+              background=[("active", C["surface"])],
+              foreground=[("active", C["text"])])
+
+        s.configure("App.TSpinbox",
+                     fieldbackground=C["surface"],
+                     background=C["surface"],
+                     foreground=C["text"],
+                     bordercolor=C["border2"],
+                     lightcolor=C["border"],
+                     darkcolor=C["border"],
+                     arrowsize=12,
+                     font=("Segoe UI", 9))
+
+    # ── Section 標題 ──────────────────────────────────
+    def _section_label(self, parent, text):
+        tk.Label(parent, text=text.upper() if lang == "en" else text,
+                 bg=C["bg"], fg=C["text3"],
+                 font=("Segoe UI", 7, "bold"),
+                 anchor="w").pack(fill="x", pady=(10, 2))
+
+    # ── 扁平按鈕工廠 ─────────────────────────────────
+    def _flat_btn(self, parent, text, command, primary=False):
+        bg   = C["accent"]   if primary else C["surface"]
+        fg   = C["btn_fg"]   if primary else C["text"]
+        h_bg = C["accent_h"] if primary else C["accent_bg"]
+        h_fg = C["btn_fg"]   if primary else C["accent"]
+        bdr  = C["accent"]   if primary else C["border2"]
+        font_w = "bold" if primary else "normal"
+
+        btn = tk.Button(
+            parent, text=text, command=command,
+            bg=bg, fg=fg,
+            relief="flat", bd=0,
+            font=("Segoe UI", 9, font_w),
+            padx=14, pady=6,
+            cursor="hand2",
+            highlightbackground=bdr,
+            highlightthickness=1,
+            activebackground=h_bg,
+            activeforeground=h_fg,
+        )
+        return btn
+
+    # ── 主介面建構 ────────────────────────────────────
+    def _build_ui(self):
+        root = self.root
+
+        # ━━ 標題列 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        header = tk.Frame(root, bg=C["surface"],
+                          highlightbackground=C["border"],
+                          highlightthickness=1)
+        header.pack(fill="x")
+
+        lhs = tk.Frame(header, bg=C["surface"])
+        lhs.pack(side="left", padx=20, pady=14)
+
+        tk.Label(lhs, text=T["main_title"],
+                 bg=C["surface"], fg=C["text"],
+                 font=("Segoe UI", 15, "bold")).pack(anchor="w")
+        tk.Label(lhs, text=T["subtitle"],
+                 bg=C["surface"], fg=C["text3"],
+                 font=("Segoe UI", 9)).pack(anchor="w")
+
+        badge_frame = tk.Frame(header, bg=C["accent_bg"],
+                               highlightbackground=C["accent"],
+                               highlightthickness=1)
+        badge_frame.pack(side="right", padx=20)
+        tk.Label(badge_frame, text="v 1.0",
+                 bg=C["accent_bg"], fg=C["accent"],
+                 font=("Segoe UI", 8, "bold"),
+                 padx=8, pady=3).pack()
+
+        # ━━ 捲動主體 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        body = tk.Frame(root, bg=C["bg"])
+        body.pack(fill="both", expand=True, padx=20, pady=(8, 0))
+
+        # ── 來源資料夾卡 ─────────────────────────────
+        self._section_label(body, T["source_folder"])
+
+        folder_card = tk.Frame(body, bg=C["surface"],
+                               highlightbackground=C["border"],
+                               highlightthickness=1)
+        folder_card.pack(fill="x")
+
+        fc_inner = tk.Frame(folder_card, bg=C["surface"])
+        fc_inner.pack(fill="x", padx=12, pady=10)
+
+        self.folder_var = tk.StringVar(value=T["no_folder"])
+        self.lbl_folder = tk.Label(
+            fc_inner, textvariable=self.folder_var,
+            bg=C["surface"], fg=C["text3"],
+            font=("Segoe UI", 9),
+            anchor="w", width=44
+        )
+        self.lbl_folder.pack(side="left", fill="x", expand=True)
+
+        def _on_folder_change(*_):
+            v = self.folder_var.get()
+            self.lbl_folder.config(
+                fg=C["text"] if v != T["no_folder"] else C["text3"]
+            )
+        self.folder_var.trace_add("write", _on_folder_change)
+
+        self._flat_btn(fc_inner, T["choose_folder_btn"],
+                       self._select_folder).pack(side="right")
+
+        # ── 參數卡 ───────────────────────────────────
+        self._section_label(body, T["param_resize"])
+
+        param_card = tk.Frame(body, bg=C["surface"],
+                              highlightbackground=C["border"],
+                              highlightthickness=1)
+        param_card.pack(fill="x")
+
+        pc_inner = tk.Frame(param_card, bg=C["surface"])
+        pc_inner.pack(fill="x", padx=12, pady=10)
+
+        self.resize_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(pc_inner,
+                        variable=self.resize_var,
+                        text=T["param_resize"],
+                        style="App.TCheckbutton",
+                        command=self._toggle_spinbox).pack(side="left")
+
+        self.height_var = tk.StringVar(value="600")
+        self.spinbox = ttk.Spinbox(
+            pc_inner, from_=100, to=2000,
+            width=7, textvariable=self.height_var,
+            style="App.TSpinbox", state="disabled"
+        )
+        self.spinbox.pack(side="left", padx=(10, 4))
+        tk.Label(pc_inner, text="px",
+                 bg=C["surface"], fg=C["text3"],
+                 font=("Segoe UI", 9)).pack(side="left")
+
+        # ── 紀錄區 ───────────────────────────────────
+        self._section_label(body, T["result"])
+
+        log_outer = tk.Frame(body, bg=C["log_bg"],
+                             highlightbackground=C["border"],
+                             highlightthickness=1)
+        log_outer.pack(fill="both", expand=True)
+
+        self.log_text = tk.Text(
+            log_outer,
+            bg=C["log_bg"], fg=C["text"],
+            font=("Consolas", 9),
+            relief="flat", bd=0,
+            wrap="word",
+            padx=10, pady=8,
+            height=9,
+            cursor="arrow",
+            state="disabled",
+            selectbackground=C["accent_bg"],
+        )
+        self.log_text.pack(side="left", fill="both", expand=True)
+        self.log_text.tag_configure("ok",   foreground=C["success"])
+        self.log_text.tag_configure("err",  foreground=C["danger"])
+        self.log_text.tag_configure("warn", foreground=C["text2"])
+
+        sb = tk.Scrollbar(log_outer, command=self.log_text.yview,
+                          bg=C["log_bg"], troughcolor=C["log_bg"],
+                          relief="flat", bd=0, width=10)
+        self.log_text.config(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+
+        # ━━ 底部工具列 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        footer = tk.Frame(root, bg=C["surface"],
+                          highlightbackground=C["border"],
+                          highlightthickness=1)
+        footer.pack(fill="x", side="bottom")
+
+        # 左：狀態列 + 進度條
+        left_bar = tk.Frame(footer, bg=C["surface"])
+        left_bar.pack(side="left", padx=16, pady=12, fill="x", expand=True)
+
+        self.status_var = tk.StringVar(value=T["ready"])
+        tk.Label(left_bar, textvariable=self.status_var,
+                 bg=C["surface"], fg=C["text3"],
+                 font=("Segoe UI", 8)).pack(anchor="w")
+
+        self.progressbar = ttk.Progressbar(
+            left_bar, length=220, mode="determinate",
+            style="Accent.Horizontal.TProgressbar"
+        )
+        self.progressbar.pack(anchor="w", pady=(4, 0))
+
+        # 右：按鈕群
+        btn_bar = tk.Frame(footer, bg=C["surface"])
+        btn_bar.pack(side="right", padx=16, pady=10)
+
+        self.btn_open = self._flat_btn(
+            btn_bar, T["open_gif"],
+            lambda: open_gif_folder(self.folder_var.get())
+        )
+        self.btn_open.config(state=tk.DISABLED)
+        self.btn_open.pack(side="left", padx=(0, 6))
+
+        self._flat_btn(btn_bar, T["clear"],
+                       self._clear_log).pack(side="left", padx=(0, 6))
+
+        self.btn_start = self._flat_btn(
+            btn_bar, T["start"],
+            lambda: start_convert_thread(self),
+            primary=True
+        )
+        self.btn_start.pack(side="left")
+
+    # ── 選擇資料夾 ────────────────────────────────────
+    def _select_folder(self):
         folder = filedialog.askdirectory()
         if folder:
-            label_source_value.config(text=folder)
-    select_file_button_source = ttk.Button(folder_frame, text=T["choose_folder_btn"], command=select_folder)
-    select_file_button_source.grid(row=0, column=1, padx=8, pady=5)
+            self.folder_var.set(folder)
+            count = sum(
+                1 for _, _, fs in os.walk(folder)
+                for f in fs
+                if os.path.splitext(f)[1].lower() in VALID_EXTENSIONS
+            )
+            self.status_var.set(T["files_found"].format(count))
 
-    # 參數區域
-    param_frame = ttk.LabelFrame(root, text=T["param"])
-    param_frame.grid(row=1, column=0, columnspan=3, padx=15, pady=5, sticky="ew")
-    checkbox_var = tk.IntVar()
-    checkbox_sicle = ttk.Checkbutton(param_frame, variable=checkbox_var, text=T["gif_height"])
-    checkbox_sicle.grid(row=0, column=0, padx=5, pady=5)
-    spinbox = ttk.Spinbox(param_frame, from_=100, to=1000, width=8)
-    spinbox.set(600)
-    spinbox.grid(row=0, column=1, padx=5, pady=5)
-    ttk.Label(param_frame, text="px").grid(row=0, column=2, padx=5, pady=5)
-
-    # 轉換結果區域
-    result_frame = ttk.LabelFrame(root, text=T["result"])
-    result_frame.grid(row=2, column=0, columnspan=3, padx=15, pady=5, sticky="nsew")
-    text_result = tk.Text(result_frame, width=62, height=10, font=("Consolas", 10))
-    text_result.pack(side="left", fill="both", expand=True)
-    scrollbar = ttk.Scrollbar(result_frame, command=text_result.yview)
-    text_result.config(yscrollcommand=scrollbar.set)
-    scrollbar.pack(side="right", fill="y")
-
-    # 進度條
-    progressbar = ttk.Progressbar(root, length=500, mode="determinate")
-    progressbar.grid(row=3, column=0, columnspan=3, padx=15, pady=12)
-
-    # 按鈕區域
-    start_button = ttk.Button(
-        root, text=T["start"], style="Accent.TButton",
-        command=lambda: start_convert_thread(
-            root, label_source_value, text_result, progressbar,
-            open_gif_folder_button, start_button, checkbox_var, spinbox
+    # ── 啟用/停用 Spinbox ────────────────────────────
+    def _toggle_spinbox(self):
+        self.spinbox.config(
+            state="normal" if self.resize_var.get() else "disabled"
         )
-    )
-    start_button.grid(row=4, column=0, padx=15, pady=10)
 
-    clean_button = ttk.Button(
-        root, text=T["clear"],
-        command=lambda: clean_all(text_result, progressbar, open_gif_folder_button)
-    )
-    clean_button.grid(row=4, column=1, padx=15, pady=10)
+    # ── 寫入紀錄 ─────────────────────────────────────
+    def log_insert(self, msg, kind="ok"):
+        self.log_text.config(state="normal")
+        self.log_text.insert("end", msg + "\n", kind)
+        self.log_text.see("end")
+        self.log_text.config(state="disabled")
 
-    open_gif_folder_button = ttk.Button(
-        root, text=T["open_gif"],
-        command=lambda: open_gif_folder(label_source_value.cget("text")),
-        state=tk.DISABLED
-    )
-    open_gif_folder_button.grid(row=4, column=2, padx=15, pady=10)
+    # ── 清空 ─────────────────────────────────────────
+    def _clear_log(self):
+        self.log_text.config(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.config(state="disabled")
+        self.progressbar["value"] = 0
+        self.status_var.set(T["ready"])
+        self.btn_open.config(state=tk.DISABLED)
 
-    root.mainloop()
 
+# ─── 入口 ────────────────────────────────────────────
 if __name__ == "__main__":
-    main()
+    App()

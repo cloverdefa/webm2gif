@@ -9,11 +9,11 @@ import shutil
 import urllib.request
 import zipfile
 
-# ---------- 自动语言检测 ----------
+# ---------- 自動語言偵測 ----------
 def detect_lang():
     try:
         lang = None
-        # 兼容不同Python版本
+        # 相容不同Python版本
         try:
             lang = locale.getlocale()[0]
         except Exception:
@@ -34,38 +34,38 @@ lang = "en"
 
 L = {
     "zh": {
-        "download_title": "正在下载 ImageMagick ...",
-        "downloading": "正在下载 ImageMagick ...",
-        "cancel_download": "取消下载",
-        "download_failed": "下载失败",
-        "download_failed_detail": "自动下载 ImageMagick 失败。\n{}",
-        "extract_failed": "解压异常",
-        "extract_failed_detail": "ImageMagick 解压异常。",
+        "download_title": "正在下載 ImageMagick ...",
+        "downloading": "正在下載 ImageMagick ...",
+        "cancel_download": "取消下載",
+        "download_failed": "下載失敗",
+        "download_failed_detail": "自動下載 ImageMagick 失敗。\n{}",
+        "extract_failed": "解壓縮異常",
+        "extract_failed_detail": "ImageMagick 解壓縮異常。",
         "magick_missing_title": "缺少 ImageMagick",
-        "magick_missing_msg": "未检测到 ImageMagick（magick.exe），是否自动下载并解压便携版到本地？\n（约45MB，下载后无需安装）",
+        "magick_missing_msg": "未偵測到 ImageMagick（magick.exe），是否自動下載並解壓縮便攜版到本機？\n（約45MB，下載後無需安裝）",
         "operation_canceled": "操作已取消",
-        "magick_missing_stop": "未检测到 ImageMagick，转换已终止。",
-        "magick_ready": "ImageMagick 已准备好",
-        "magick_ready_info": "已自动下载并解压 ImageMagick 到本地：\n{}\n\n如遇系统找不到 magick 命令，可将该目录加入 PATH。",
+        "magick_missing_stop": "未偵測到 ImageMagick，轉換已終止。",
+        "magick_ready": "ImageMagick 已準備好",
+        "magick_ready_info": "已自動下載並解壓縮 ImageMagick 到本機：\n{}\n\n如遇系統找不到 magick 命令，可將該目錄加入 PATH。",
         "magick_not_found": "magick.exe 未找到",
-        "magick_not_found_detail": "ImageMagick 下载/解压异常。",
-        "error": "错误",
-        "not_found_folder": "未找到文件夹: {}",
+        "magick_not_found_detail": "ImageMagick 下載/解壓縮異常。",
+        "error": "錯誤",
+        "not_found_folder": "未找到資料夾: {}",
         "success": "成功: {}",
-        "magick_convert_failed": "ImageMagick 转换失败: {}",
-        "magick_missing_short": "ImageMagick（magick.exe）缺失，已自动下载和解压。如有问题请手动检查。",
-        "unsupported_type": "不支持的文件类型: {}",
+        "magick_convert_failed": "ImageMagick 轉換失敗: {}",
+        "magick_missing_short": "ImageMagick（magick.exe）缺失，已自動下載和解壓縮。如有問題請手動檢查。",
+        "unsupported_type": "不支援的檔案類型: {}",
         "tip": "提示",
-        "choose_folder": "请选择源文件夹！",
-        "not_found_files": "未找到可转换的文件！",
-        "source_folder": "源文件夹选择",
-        "choose_folder_btn": "选择文件夹",
-        "param": "参数设置",
-        "gif_height": "GIF 高度缩放为",
-        "result": "转换结果",
-        "clear": "清空结果",
-        "open_gif": "打开 GIF 文件夹",
-        "start": "开始转换",
+        "choose_folder": "請選擇來源資料夾！",
+        "not_found_files": "未找到可轉換的檔案！",
+        "source_folder": "來源資料夾選擇",
+        "choose_folder_btn": "選擇資料夾",
+        "param": "參數設定",
+        "gif_height": "GIF 高度縮放為",
+        "result": "轉換結果",
+        "clear": "清空結果",
+        "open_gif": "開啟 GIF 資料夾",
+        "start": "開始轉換",
         "main_title": "Webm2Gif v1.0 - lilinth/webm2gif"
     },
     "en": {
@@ -106,19 +106,19 @@ L = {
 }
 T = L[lang]
 
-# --------- 配置 ----------
+# --------- 設定 ----------
 VALID_EXTENSIONS = {".webp", ".webm"}
 IMAGEMAGICK_ZIP_URL = "https://imagemagick.org/archive/binaries/ImageMagick-7.1.1-47-portable-Q16-x64.zip"
 IMAGEMAGICK_ZIP_NAME = "ImageMagick-7.1.1-47-portable-Q16-x64.zip"
 IMAGEMAGICK_UNZIP_DIR = "ImageMagick-7.1.1-47-portable-Q16-x64"
 
-# --------- 兼容PyInstaller资源路径 ---------
+# --------- 相容PyInstaller資源路徑 ---------
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
-# --------- ImageMagick 检查和自动下载 ---------
+# --------- ImageMagick 檢查與自動下載 ---------
 def check_and_download_imagemagick_zip(parent=None):
     def find_magick_exe_recursive(base_dir):
         for root, dirs, files in os.walk(base_dir):
@@ -143,7 +143,7 @@ def check_and_download_imagemagick_zip(parent=None):
         return None
         
     if parent is not None:
-        # 假设主窗口有 start_button 全局变量
+        # 假設主視窗有 start_button 全域變數
         try:
             start_button.config(state=tk.NORMAL)
         except Exception:
@@ -200,13 +200,13 @@ def check_and_download_imagemagick_zip(parent=None):
         parent.wait_window(win)
         return result["ok"] and os.path.exists(filename)
 
-    # 下载
+    # 下載
     if not os.path.exists(IMAGEMAGICK_ZIP_NAME):
         ok = download_with_progress(IMAGEMAGICK_ZIP_URL, IMAGEMAGICK_ZIP_NAME)
         if not ok:
             return None
 
-    # 解压
+    # 解壓縮
     if not os.path.exists(IMAGEMAGICK_UNZIP_DIR):
         try:
             with zipfile.ZipFile(IMAGEMAGICK_ZIP_NAME, 'r') as zip_ref:
@@ -226,7 +226,8 @@ def check_and_download_imagemagick_zip(parent=None):
     else:
         messagebox.showerror(T["magick_not_found"], T["magick_not_found_detail"], parent=parent)
         return None
-# --------- 打开GIF文件夹 ---------
+
+# --------- 開啟GIF資料夾 ---------
 def open_gif_folder(root_folder):
     folder_path = os.path.join(root_folder, "gif")
     try:
@@ -234,7 +235,7 @@ def open_gif_folder(root_folder):
     except FileNotFoundError:
         messagebox.showerror(T["error"], T["not_found_folder"].format(folder_path))
 
-# --------- 统一用magick转换 ---------
+# --------- 統一用magick轉換 ---------
 def convert_file(input_filepath, resize_height, parent=None):
     ext = os.path.splitext(input_filepath)[1].lower()
     if ext not in VALID_EXTENSIONS:
@@ -253,7 +254,7 @@ def convert_file(input_filepath, resize_height, parent=None):
         if resize_height:
             cmd.extend(["-resize", f"x{resize_height}"])
         cmd.append(output_filename)
-        # 关键参数：禁止cmd窗口弹出
+        # 關鍵參數：禁止cmd視窗彈出
         creationflags = 0
         if os.name == "nt":
             creationflags = subprocess.CREATE_NO_WINDOW
@@ -262,7 +263,7 @@ def convert_file(input_filepath, resize_height, parent=None):
     except Exception as e:
         return T["magick_convert_failed"].format(e)
 
-# --------- 转换线程 ---------
+# --------- 轉換執行緒 ---------
 def start_convert_thread(root, label_source_value, text_result, progressbar, open_gif_folder_button, start_button, checkbox_var, spinbox):
     def task():
         start_button.config(state=tk.DISABLED)
@@ -309,19 +310,19 @@ def clean_all(text_result, progressbar, open_gif_folder_button):
     progressbar["value"] = 0
     open_gif_folder_button.config(state=tk.DISABLED)
 
-# --------- 主界面 ---------
+# --------- 主介面 ---------
 def main():
     root = tk.Tk()
     root.title(T["main_title"])
     root.geometry("560x440")
     root.resizable(False, False)
-    root.option_add("*Font", ("微软雅黑", 11) if lang == "zh" else ("Arial", 11))
+    root.option_add("*Font", ("微軟正黑體", 11) if lang == "zh" else ("Arial", 11))
 
     style = ttk.Style()
     style.theme_use('clam')
     style.configure("Accent.TButton", foreground="white", background="#0078d7")
 
-    # 源文件夹区域
+    # 來源資料夾區域
     folder_frame = ttk.LabelFrame(root, text=T["source_folder"])
     folder_frame.grid(row=0, column=0, columnspan=3, padx=15, pady=8, sticky="ew")
     label_source_value = ttk.Label(folder_frame, text="", width=45)
@@ -333,7 +334,7 @@ def main():
     select_file_button_source = ttk.Button(folder_frame, text=T["choose_folder_btn"], command=select_folder)
     select_file_button_source.grid(row=0, column=1, padx=8, pady=5)
 
-    # 参数区域
+    # 參數區域
     param_frame = ttk.LabelFrame(root, text=T["param"])
     param_frame.grid(row=1, column=0, columnspan=3, padx=15, pady=5, sticky="ew")
     checkbox_var = tk.IntVar()
@@ -344,7 +345,7 @@ def main():
     spinbox.grid(row=0, column=1, padx=5, pady=5)
     ttk.Label(param_frame, text="px").grid(row=0, column=2, padx=5, pady=5)
 
-    # 转换结果区域
+    # 轉換結果區域
     result_frame = ttk.LabelFrame(root, text=T["result"])
     result_frame.grid(row=2, column=0, columnspan=3, padx=15, pady=5, sticky="nsew")
     text_result = tk.Text(result_frame, width=62, height=10, font=("Consolas", 10))
@@ -353,11 +354,11 @@ def main():
     text_result.config(yscrollcommand=scrollbar.set)
     scrollbar.pack(side="right", fill="y")
 
-    # 进度条
+    # 進度條
     progressbar = ttk.Progressbar(root, length=500, mode="determinate")
     progressbar.grid(row=3, column=0, columnspan=3, padx=15, pady=12)
 
-    # 按钮区域
+    # 按鈕區域
     start_button = ttk.Button(
         root, text=T["start"], style="Accent.TButton",
         command=lambda: start_convert_thread(

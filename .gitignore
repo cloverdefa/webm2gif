@@ -2,9 +2,10 @@
 .DS_Store
 Thumbs.db
 .env
+.python-versioon
 
 # 忽略Python/main.py
-Python/main.py
+main.py
 
 # 忽略資料夾
 dist/

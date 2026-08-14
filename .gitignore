@@ -3,6 +3,8 @@
 Thumbs.db
 .env
 .python-versioon
+id_ed25519
+id_rsa
 
 # 忽略Python/main.py
 main.py
@@ -11,3 +13,6 @@ main.py
 dist/
 build/
 .venv/
+
+#禁止忽略檔案
+!README.md

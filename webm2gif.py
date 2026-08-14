@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import locale
 import os
 import sys
@@ -8,6 +10,7 @@ from tkinter import ttk, filedialog, messagebox
 import shutil
 import urllib.request
 import zipfile
+
 
 # ---------- 自動語言偵測 ----------
 def detect_lang():
@@ -28,6 +31,7 @@ def detect_lang():
     except Exception:
         pass
     return "en"
+
 
 lang = detect_lang()
 
@@ -111,40 +115,44 @@ L = {
         "converting": "Converting…",
         "done": "Done",
         "files_found": "{} files found",
-    }
+    },
 }
 T = L[lang]
 
 # --------- 設定 ----------
 VALID_EXTENSIONS = {".webp", ".webm"}
-IMAGEMAGICK_ZIP_URL = "https://imagemagick.org/archive/binaries/ImageMagick-7.1.1-47-portable-Q16-x64.zip"
+IMAGEMAGICK_ZIP_URL = (
+    "https://imagemagick.org/archive/binaries/ImageMagick-7.1.1-47-portable-Q16-x64.zip"
+)
 IMAGEMAGICK_ZIP_NAME = "ImageMagick-7.1.1-47-portable-Q16-x64.zip"
 IMAGEMAGICK_UNZIP_DIR = "ImageMagick-7.1.1-47-portable-Q16-x64"
 
 # --------- 色票（暖灰 + Teal 強調色）----------
 C = {
-    "bg":        "#F7F6F3",
-    "surface":   "#FFFFFF",
-    "border":    "#E2E0D8",
-    "border2":   "#C8C6BC",
-    "accent":    "#1D9E75",
-    "accent_h":  "#0F6E56",
+    "bg": "#F7F6F3",
+    "surface": "#FFFFFF",
+    "border": "#E2E0D8",
+    "border2": "#C8C6BC",
+    "accent": "#1D9E75",
+    "accent_h": "#0F6E56",
     "accent_bg": "#E1F5EE",
-    "text":      "#2C2C2A",
-    "text2":     "#5F5E5A",
-    "text3":     "#888780",
-    "success":   "#3B6D11",
-    "success_bg":"#EAF3DE",
-    "danger":    "#A32D2D",
-    "log_bg":    "#F1EFE8",
-    "btn_fg":    "#FFFFFF",
+    "text": "#2C2C2A",
+    "text2": "#5F5E5A",
+    "text3": "#888780",
+    "success": "#3B6D11",
+    "success_bg": "#EAF3DE",
+    "danger": "#A32D2D",
+    "log_bg": "#F1EFE8",
+    "btn_fg": "#FFFFFF",
 }
+
 
 # --------- 相容PyInstaller資源路徑 ---------
 def resource_path(relative_path):
-    if hasattr(sys, '_MEIPASS'):
+    if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
+
 
 # --------- ImageMagick 檢查與自動下載 ---------
 def check_and_download_imagemagick_zip(parent=None):
@@ -168,7 +176,9 @@ def check_and_download_imagemagick_zip(parent=None):
         T["magick_missing_title"], T["magick_missing_msg"], parent=parent
     )
     if not answer:
-        messagebox.showinfo(T["operation_canceled"], T["magick_missing_stop"], parent=parent)
+        messagebox.showinfo(
+            T["operation_canceled"], T["magick_missing_stop"], parent=parent
+        )
         return None
 
     def download_with_progress(url, filename):
@@ -179,17 +189,18 @@ def check_and_download_imagemagick_zip(parent=None):
         win.configure(bg=C["bg"])
         win.grab_set()
 
-        tk.Label(win, text=T["downloading"],
-                 bg=C["bg"], fg=C["text"],
-                 font=("Segoe UI", 10)).pack(pady=(20, 8))
+        tk.Label(
+            win, text=T["downloading"], bg=C["bg"], fg=C["text"], font=("Segoe UI", 10)
+        ).pack(pady=(20, 8))
 
-        bar = ttk.Progressbar(win, length=360, mode="determinate",
-                               style="Accent.Horizontal.TProgressbar")
+        bar = ttk.Progressbar(
+            win, length=360, mode="determinate", style="Accent.Horizontal.TProgressbar"
+        )
         bar.pack(pady=4)
 
-        percent_label = tk.Label(win, text="0%",
-                                 bg=C["bg"], fg=C["text2"],
-                                 font=("Segoe UI", 9))
+        percent_label = tk.Label(
+            win, text="0%", bg=C["bg"], fg=C["text2"], font=("Segoe UI", 9)
+        )
         percent_label.pack()
 
         cancel_flag = {"cancel": False}
@@ -198,20 +209,29 @@ def check_and_download_imagemagick_zip(parent=None):
             cancel_flag["cancel"] = True
             win.destroy()
 
-        tk.Button(win, text=T["cancel_download"],
-                  command=on_cancel,
-                  bg=C["surface"], fg=C["text"],
-                  relief="flat", bd=0,
-                  font=("Segoe UI", 9),
-                  padx=14, pady=5,
-                  cursor="hand2").pack(pady=12)
+        tk.Button(
+            win,
+            text=T["cancel_download"],
+            command=on_cancel,
+            bg=C["surface"],
+            fg=C["text"],
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 9),
+            padx=14,
+            pady=5,
+            cursor="hand2",
+        ).pack(pady=12)
 
         result = {"ok": False}
 
         def download_thread():
             try:
-                with urllib.request.urlopen(url) as response, open(filename, 'wb') as out_file:
-                    total_length = response.getheader('content-length')
+                with (
+                    urllib.request.urlopen(url) as response,
+                    open(filename, "wb") as out_file,
+                ):
+                    total_length = response.getheader("content-length")
                     if total_length is None:
                         out_file.write(response.read())
                     else:
@@ -232,19 +252,27 @@ def check_and_download_imagemagick_zip(parent=None):
                             out_file.write(buffer)
                             downloaded += len(buffer)
                             percent = int(downloaded * 100 / total_length)
-                            win.after(0, lambda p=percent: (
-                                bar.config(value=p),
-                                percent_label.config(text=f"{p}%")
-                            ))
+                            win.after(
+                                0,
+                                lambda p=percent: (
+                                    bar.config(value=p),
+                                    percent_label.config(text=f"{p}%"),
+                                ),
+                            )
                 result["ok"] = True
                 win.after(0, win.destroy)
             except Exception as e:
-                win.after(0, lambda: (
-                    win.destroy(),
-                    messagebox.showerror(T["download_failed"],
-                                         T["download_failed_detail"].format(e),
-                                         parent=parent)
-                ))
+                win.after(
+                    0,
+                    lambda: (
+                        win.destroy(),
+                        messagebox.showerror(
+                            T["download_failed"],
+                            T["download_failed_detail"].format(e),
+                            parent=parent,
+                        ),
+                    ),
+                )
 
         threading.Thread(target=download_thread, daemon=True).start()
         parent.wait_window(win)
@@ -257,20 +285,26 @@ def check_and_download_imagemagick_zip(parent=None):
 
     if not os.path.exists(IMAGEMAGICK_UNZIP_DIR):
         try:
-            with zipfile.ZipFile(IMAGEMAGICK_ZIP_NAME, 'r') as zip_ref:
+            with zipfile.ZipFile(IMAGEMAGICK_ZIP_NAME, "r") as zip_ref:
                 zip_ref.extractall(IMAGEMAGICK_UNZIP_DIR)
         except Exception:
-            messagebox.showerror(T["extract_failed"], T["extract_failed_detail"], parent=parent)
+            messagebox.showerror(
+                T["extract_failed"], T["extract_failed_detail"], parent=parent
+            )
             return None
 
     exe_candidate = find_magick_exe_recursive(IMAGEMAGICK_UNZIP_DIR)
     if exe_candidate:
-        messagebox.showinfo(T["magick_ready"],
-                            T["magick_ready_info"].format(exe_candidate),
-                            parent=parent)
+        messagebox.showinfo(
+            T["magick_ready"],
+            T["magick_ready_info"].format(exe_candidate),
+            parent=parent,
+        )
         return exe_candidate
     else:
-        messagebox.showerror(T["magick_not_found"], T["magick_not_found_detail"], parent=parent)
+        messagebox.showerror(
+            T["magick_not_found"], T["magick_not_found_detail"], parent=parent
+        )
         return None
 
 
@@ -293,8 +327,7 @@ def convert_file(input_filepath, resize_height, parent=None):
     if not os.path.exists(gif_dir):
         os.makedirs(gif_dir)
     output_filename = os.path.join(
-        gif_dir,
-        os.path.splitext(os.path.basename(input_filepath))[0] + ".gif"
+        gif_dir, os.path.splitext(os.path.basename(input_filepath))[0] + ".gif"
     )
 
     magick_exe = check_and_download_imagemagick_zip(parent)
@@ -377,53 +410,70 @@ class App:
         s = ttk.Style()
         s.theme_use("clam")
 
-        s.configure("Accent.Horizontal.TProgressbar",
-                     troughcolor=C["border"],
-                     background=C["accent"],
-                     borderwidth=0,
-                     thickness=6)
+        s.configure(
+            "Accent.Horizontal.TProgressbar",
+            troughcolor=C["border"],
+            background=C["accent"],
+            borderwidth=0,
+            thickness=6,
+        )
 
-        s.configure("App.TCheckbutton",
-                     background=C["surface"],
-                     foreground=C["text"],
-                     font=("Segoe UI", 9),
-                     focuscolor=C["surface"])
-        s.map("App.TCheckbutton",
-              background=[("active", C["surface"])],
-              foreground=[("active", C["text"])])
+        s.configure(
+            "App.TCheckbutton",
+            background=C["surface"],
+            foreground=C["text"],
+            font=("Segoe UI", 9),
+            focuscolor=C["surface"],
+        )
+        s.map(
+            "App.TCheckbutton",
+            background=[("active", C["surface"])],
+            foreground=[("active", C["text"])],
+        )
 
-        s.configure("App.TSpinbox",
-                     fieldbackground=C["surface"],
-                     background=C["surface"],
-                     foreground=C["text"],
-                     bordercolor=C["border2"],
-                     lightcolor=C["border"],
-                     darkcolor=C["border"],
-                     arrowsize=12,
-                     font=("Segoe UI", 9))
+        s.configure(
+            "App.TSpinbox",
+            fieldbackground=C["surface"],
+            background=C["surface"],
+            foreground=C["text"],
+            bordercolor=C["border2"],
+            lightcolor=C["border"],
+            darkcolor=C["border"],
+            arrowsize=12,
+            font=("Segoe UI", 9),
+        )
 
     # ── Section 標題 ──────────────────────────────────
     def _section_label(self, parent, text):
-        tk.Label(parent, text=text.upper() if lang == "en" else text,
-                 bg=C["bg"], fg=C["text3"],
-                 font=("Segoe UI", 7, "bold"),
-                 anchor="w").pack(fill="x", pady=(10, 2))
+        tk.Label(
+            parent,
+            text=text.upper() if lang == "en" else text,
+            bg=C["bg"],
+            fg=C["text3"],
+            font=("Segoe UI", 7, "bold"),
+            anchor="w",
+        ).pack(fill="x", pady=(10, 2))
 
     # ── 扁平按鈕工廠 ─────────────────────────────────
     def _flat_btn(self, parent, text, command, primary=False):
-        bg   = C["accent"]   if primary else C["surface"]
-        fg   = C["btn_fg"]   if primary else C["text"]
+        bg = C["accent"] if primary else C["surface"]
+        fg = C["btn_fg"] if primary else C["text"]
         h_bg = C["accent_h"] if primary else C["accent_bg"]
-        h_fg = C["btn_fg"]   if primary else C["accent"]
-        bdr  = C["accent"]   if primary else C["border2"]
+        h_fg = C["btn_fg"] if primary else C["accent"]
+        bdr = C["accent"] if primary else C["border2"]
         font_w = "bold" if primary else "normal"
 
         btn = tk.Button(
-            parent, text=text, command=command,
-            bg=bg, fg=fg,
-            relief="flat", bd=0,
+            parent,
+            text=text,
+            command=command,
+            bg=bg,
+            fg=fg,
+            relief="flat",
+            bd=0,
             font=("Segoe UI", 9, font_w),
-            padx=14, pady=6,
+            padx=14,
+            pady=6,
             cursor="hand2",
             highlightbackground=bdr,
             highlightthickness=1,
@@ -437,29 +487,45 @@ class App:
         root = self.root
 
         # ━━ 標題列 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        header = tk.Frame(root, bg=C["surface"],
-                          highlightbackground=C["border"],
-                          highlightthickness=1)
+        header = tk.Frame(
+            root, bg=C["surface"], highlightbackground=C["border"], highlightthickness=1
+        )
         header.pack(fill="x")
 
         lhs = tk.Frame(header, bg=C["surface"])
         lhs.pack(side="left", padx=20, pady=14)
 
-        tk.Label(lhs, text=T["main_title"],
-                 bg=C["surface"], fg=C["text"],
-                 font=("Segoe UI", 15, "bold")).pack(anchor="w")
-        tk.Label(lhs, text=T["subtitle"],
-                 bg=C["surface"], fg=C["text3"],
-                 font=("Segoe UI", 9)).pack(anchor="w")
+        tk.Label(
+            lhs,
+            text=T["main_title"],
+            bg=C["surface"],
+            fg=C["text"],
+            font=("Segoe UI", 15, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            lhs,
+            text=T["subtitle"],
+            bg=C["surface"],
+            fg=C["text3"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w")
 
-        badge_frame = tk.Frame(header, bg=C["accent_bg"],
-                               highlightbackground=C["accent"],
-                               highlightthickness=1)
+        badge_frame = tk.Frame(
+            header,
+            bg=C["accent_bg"],
+            highlightbackground=C["accent"],
+            highlightthickness=1,
+        )
         badge_frame.pack(side="right", padx=20)
-        tk.Label(badge_frame, text="v 1.0",
-                 bg=C["accent_bg"], fg=C["accent"],
-                 font=("Segoe UI", 8, "bold"),
-                 padx=8, pady=3).pack()
+        tk.Label(
+            badge_frame,
+            text="v 1.0",
+            bg=C["accent_bg"],
+            fg=C["accent"],
+            font=("Segoe UI", 8, "bold"),
+            padx=8,
+            pady=3,
+        ).pack()
 
         # ━━ 捲動主體 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         body = tk.Frame(root, bg=C["bg"])
@@ -468,9 +534,9 @@ class App:
         # ── 來源資料夾卡 ─────────────────────────────
         self._section_label(body, T["source_folder"])
 
-        folder_card = tk.Frame(body, bg=C["surface"],
-                               highlightbackground=C["border"],
-                               highlightthickness=1)
+        folder_card = tk.Frame(
+            body, bg=C["surface"], highlightbackground=C["border"], highlightthickness=1
+        )
         folder_card.pack(fill="x")
 
         fc_inner = tk.Frame(folder_card, bg=C["surface"])
@@ -478,87 +544,105 @@ class App:
 
         self.folder_var = tk.StringVar(value=T["no_folder"])
         self.lbl_folder = tk.Label(
-            fc_inner, textvariable=self.folder_var,
-            bg=C["surface"], fg=C["text3"],
+            fc_inner,
+            textvariable=self.folder_var,
+            bg=C["surface"],
+            fg=C["text3"],
             font=("Segoe UI", 9),
-            anchor="w", width=44
+            anchor="w",
+            width=44,
         )
         self.lbl_folder.pack(side="left", fill="x", expand=True)
 
         def _on_folder_change(*_):
             v = self.folder_var.get()
-            self.lbl_folder.config(
-                fg=C["text"] if v != T["no_folder"] else C["text3"]
-            )
+            self.lbl_folder.config(fg=C["text"] if v != T["no_folder"] else C["text3"])
+
         self.folder_var.trace_add("write", _on_folder_change)
 
-        self._flat_btn(fc_inner, T["choose_folder_btn"],
-                       self._select_folder).pack(side="right")
+        self._flat_btn(fc_inner, T["choose_folder_btn"], self._select_folder).pack(
+            side="right"
+        )
 
         # ── 參數卡 ───────────────────────────────────
         self._section_label(body, T["param_resize"])
 
-        param_card = tk.Frame(body, bg=C["surface"],
-                              highlightbackground=C["border"],
-                              highlightthickness=1)
+        param_card = tk.Frame(
+            body, bg=C["surface"], highlightbackground=C["border"], highlightthickness=1
+        )
         param_card.pack(fill="x")
 
         pc_inner = tk.Frame(param_card, bg=C["surface"])
         pc_inner.pack(fill="x", padx=12, pady=10)
 
         self.resize_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(pc_inner,
-                        variable=self.resize_var,
-                        text=T["param_resize"],
-                        style="App.TCheckbutton",
-                        command=self._toggle_spinbox).pack(side="left")
+        ttk.Checkbutton(
+            pc_inner,
+            variable=self.resize_var,
+            text=T["param_resize"],
+            style="App.TCheckbutton",
+            command=self._toggle_spinbox,
+        ).pack(side="left")
 
         self.height_var = tk.StringVar(value="600")
         self.spinbox = ttk.Spinbox(
-            pc_inner, from_=100, to=2000,
-            width=7, textvariable=self.height_var,
-            style="App.TSpinbox", state="disabled"
+            pc_inner,
+            from_=100,
+            to=2000,
+            width=7,
+            textvariable=self.height_var,
+            style="App.TSpinbox",
+            state="disabled",
         )
         self.spinbox.pack(side="left", padx=(10, 4))
-        tk.Label(pc_inner, text="px",
-                 bg=C["surface"], fg=C["text3"],
-                 font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(
+            pc_inner, text="px", bg=C["surface"], fg=C["text3"], font=("Segoe UI", 9)
+        ).pack(side="left")
 
         # ── 紀錄區 ───────────────────────────────────
         self._section_label(body, T["result"])
 
-        log_outer = tk.Frame(body, bg=C["log_bg"],
-                             highlightbackground=C["border"],
-                             highlightthickness=1)
+        log_outer = tk.Frame(
+            body, bg=C["log_bg"], highlightbackground=C["border"], highlightthickness=1
+        )
         log_outer.pack(fill="both", expand=True)
 
         self.log_text = tk.Text(
             log_outer,
-            bg=C["log_bg"], fg=C["text"],
+            bg=C["log_bg"],
+            fg=C["text"],
             font=("Consolas", 9),
-            relief="flat", bd=0,
+            relief="flat",
+            bd=0,
             wrap="word",
-            padx=10, pady=8,
+            padx=10,
+            pady=8,
             height=9,
             cursor="arrow",
             state="disabled",
             selectbackground=C["accent_bg"],
         )
         self.log_text.pack(side="left", fill="both", expand=True)
-        self.log_text.tag_configure("ok",   foreground=C["success"])
-        self.log_text.tag_configure("err",  foreground=C["danger"])
+        self.log_text.tag_configure("ok", foreground=C["success"])
+        self.log_text.tag_configure("err", foreground=C["danger"])
         self.log_text.tag_configure("warn", foreground=C["text2"])
 
-        sb = tk.Scrollbar(log_outer, command=self.log_text.yview,
-                          bg=C["log_bg"], troughcolor=C["log_bg"],
-                          relief="flat", bd=0, width=10)
+        sb = tk.Scrollbar(
+            log_outer,
+            command=self.log_text.yview,
+            bg=C["log_bg"],
+            troughcolor=C["log_bg"],
+            relief="flat",
+            bd=0,
+            width=10,
+        )
         self.log_text.config(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
 
         # ━━ 底部工具列 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        footer = tk.Frame(root, bg=C["surface"],
-                          highlightbackground=C["border"],
-                          highlightthickness=1)
+        footer = tk.Frame(
+            root, bg=C["surface"], highlightbackground=C["border"], highlightthickness=1
+        )
         footer.pack(fill="x", side="bottom")
 
         # 左：狀態列 + 進度條
@@ -566,13 +650,19 @@ class App:
         left_bar.pack(side="left", padx=16, pady=12, fill="x", expand=True)
 
         self.status_var = tk.StringVar(value=T["ready"])
-        tk.Label(left_bar, textvariable=self.status_var,
-                 bg=C["surface"], fg=C["text3"],
-                 font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(
+            left_bar,
+            textvariable=self.status_var,
+            bg=C["surface"],
+            fg=C["text3"],
+            font=("Segoe UI", 8),
+        ).pack(anchor="w")
 
         self.progressbar = ttk.Progressbar(
-            left_bar, length=220, mode="determinate",
-            style="Accent.Horizontal.TProgressbar"
+            left_bar,
+            length=220,
+            mode="determinate",
+            style="Accent.Horizontal.TProgressbar",
         )
         self.progressbar.pack(anchor="w", pady=(4, 0))
 
@@ -581,19 +671,17 @@ class App:
         btn_bar.pack(side="right", padx=16, pady=10)
 
         self.btn_open = self._flat_btn(
-            btn_bar, T["open_gif"],
-            lambda: open_gif_folder(self.folder_var.get())
+            btn_bar, T["open_gif"], lambda: open_gif_folder(self.folder_var.get())
         )
         self.btn_open.config(state=tk.DISABLED)
         self.btn_open.pack(side="left", padx=(0, 6))
 
-        self._flat_btn(btn_bar, T["clear"],
-                       self._clear_log).pack(side="left", padx=(0, 6))
+        self._flat_btn(btn_bar, T["clear"], self._clear_log).pack(
+            side="left", padx=(0, 6)
+        )
 
         self.btn_start = self._flat_btn(
-            btn_bar, T["start"],
-            lambda: start_convert_thread(self),
-            primary=True
+            btn_bar, T["start"], lambda: start_convert_thread(self), primary=True
         )
         self.btn_start.pack(side="left")
 
@@ -603,7 +691,8 @@ class App:
         if folder:
             self.folder_var.set(folder)
             count = sum(
-                1 for _, _, fs in os.walk(folder)
+                1
+                for _, _, fs in os.walk(folder)
                 for f in fs
                 if os.path.splitext(f)[1].lower() in VALID_EXTENSIONS
             )
@@ -611,9 +700,7 @@ class App:
 
     # ── 啟用/停用 Spinbox ────────────────────────────
     def _toggle_spinbox(self):
-        self.spinbox.config(
-            state="normal" if self.resize_var.get() else "disabled"
-        )
+        self.spinbox.config(state="normal" if self.resize_var.get() else "disabled")
 
     # ── 寫入紀錄 ─────────────────────────────────────
     def log_insert(self, msg, kind="ok"):

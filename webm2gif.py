@@ -54,9 +54,10 @@ L = {
         "magick_not_found_detail": "ImageMagick 下載/解壓縮異常。",
         "error": "錯誤",
         "not_found_folder": "未找到資料夾: {}",
+        "open_folder_failed": "無法開啟資料夾: {}",
         "success": "✓  {}",
         "magick_convert_failed": "✗  轉換失敗: {}",
-        "magick_missing_short": "ImageMagick（magick.exe）缺失，已自動下載和解壓縮。如有問題請手動檢查。",
+        "magick_missing_short": "ImageMagick（magick.exe）缺失，且使用者取消下載，轉換已跳過。",
         "unsupported_type": "不支援的檔案類型: {}",
         "tip": "提示",
         "choose_folder": "請選擇來源資料夾！",
@@ -94,9 +95,10 @@ L = {
         "magick_not_found_detail": "ImageMagick download/extract error.",
         "error": "Error",
         "not_found_folder": "Folder not found: {}",
+        "open_folder_failed": "Could not open folder: {}",
         "success": "✓  {}",
         "magick_convert_failed": "✗  Conversion Failed: {}",
-        "magick_missing_short": "ImageMagick (magick.exe) missing. Downloaded and extracted automatically.",
+        "magick_missing_short": "ImageMagick (magick.exe) missing and download was declined. Conversion skipped.",
         "unsupported_type": "Unsupported file type: {}",
         "tip": "Tip",
         "choose_folder": "Please select a source folder!",
@@ -120,6 +122,8 @@ L = {
 T = L[lang]
 
 # --------- 設定 ----------
+# 注意：.webp 為圖片格式（可能含動態 webp），.webm 為影片格式，
+# 若僅需支援影片，可移除 ".webp"。這裡沿用原始設定。
 VALID_EXTENSIONS = {".webp", ".webm"}
 IMAGEMAGICK_ZIP_URL = (
     "https://imagemagick.org/archive/binaries/ImageMagick-7.1.1-47-portable-Q16-x64.zip"
@@ -147,181 +151,96 @@ C = {
 }
 
 
-# --------- 相容PyInstaller資源路徑 ---------
+# --------- 相容 PyInstaller / 直接執行 的基準路徑 ---------
+def get_base_dir():
+    """
+    回傳一個可寫入的穩定目錄，用來存放下載的 ImageMagick zip/解壓縮結果。
+    - 打包成 exe (PyInstaller, frozen) 時：使用 exe 所在目錄。
+    - 直接以 .py 執行時：使用該 .py 檔案所在目錄。
+    這避免了「相對路徑」在不同工作目錄啟動時，每次都重新下載或寫入失敗的問題。
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def resource_path(relative_path):
+    """PyInstaller 打包後，唯讀資源（例如圖示）的存放路徑。"""
     if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
 
-# --------- ImageMagick 檢查與自動下載 ---------
-def check_and_download_imagemagick_zip(parent=None):
-    def find_magick_exe_recursive(base_dir):
-        for root, dirs, files in os.walk(base_dir):
-            if "magick.exe" in files:
-                return os.path.join(root, "magick.exe")
-        return None
+BASE_DIR = get_base_dir()
+IMAGEMAGICK_ZIP_PATH = os.path.join(BASE_DIR, IMAGEMAGICK_ZIP_NAME)
+IMAGEMAGICK_UNZIP_PATH = os.path.join(BASE_DIR, IMAGEMAGICK_UNZIP_DIR)
 
+
+# ======================================================
+#  ImageMagick 檢查與下載（可在背景執行緒安全執行的「純邏輯」部分）
+# ======================================================
+def find_magick_exe_recursive(base_dir):
+    if not os.path.isdir(base_dir):
+        return None
+    for root, dirs, files in os.walk(base_dir):
+        if "magick.exe" in files:
+            return os.path.join(root, "magick.exe")
+    return None
+
+
+def find_existing_magick():
+    """只做查找，不涉及任何 GUI 操作，執行緒安全。"""
     magick_path = shutil.which("magick")
     if magick_path:
         return magick_path
-
-    exe_candidate = find_magick_exe_recursive(IMAGEMAGICK_UNZIP_DIR)
-    if exe_candidate:
-        return exe_candidate
-
-    if parent is None:
-        parent = tk._default_root
-    answer = messagebox.askyesno(
-        T["magick_missing_title"], T["magick_missing_msg"], parent=parent
-    )
-    if not answer:
-        messagebox.showinfo(
-            T["operation_canceled"], T["magick_missing_stop"], parent=parent
-        )
-        return None
-
-    def download_with_progress(url, filename):
-        win = tk.Toplevel(parent)
-        win.title(T["download_title"])
-        win.geometry("420x160")
-        win.resizable(False, False)
-        win.configure(bg=C["bg"])
-        win.grab_set()
-
-        tk.Label(
-            win, text=T["downloading"], bg=C["bg"], fg=C["text"], font=("Segoe UI", 10)
-        ).pack(pady=(20, 8))
-
-        bar = ttk.Progressbar(
-            win, length=360, mode="determinate", style="Accent.Horizontal.TProgressbar"
-        )
-        bar.pack(pady=4)
-
-        percent_label = tk.Label(
-            win, text="0%", bg=C["bg"], fg=C["text2"], font=("Segoe UI", 9)
-        )
-        percent_label.pack()
-
-        cancel_flag = {"cancel": False}
-
-        def on_cancel():
-            cancel_flag["cancel"] = True
-            win.destroy()
-
-        tk.Button(
-            win,
-            text=T["cancel_download"],
-            command=on_cancel,
-            bg=C["surface"],
-            fg=C["text"],
-            relief="flat",
-            bd=0,
-            font=("Segoe UI", 9),
-            padx=14,
-            pady=5,
-            cursor="hand2",
-        ).pack(pady=12)
-
-        result = {"ok": False}
-
-        def download_thread():
-            try:
-                with (
-                    urllib.request.urlopen(url) as response,
-                    open(filename, "wb") as out_file,
-                ):
-                    total_length = response.getheader("content-length")
-                    if total_length is None:
-                        out_file.write(response.read())
-                    else:
-                        total_length = int(total_length)
-                        downloaded = 0
-                        block_size = 8192
-                        while True:
-                            if cancel_flag["cancel"]:
-                                try:
-                                    out_file.close()
-                                    os.remove(filename)
-                                except Exception:
-                                    pass
-                                return
-                            buffer = response.read(block_size)
-                            if not buffer:
-                                break
-                            out_file.write(buffer)
-                            downloaded += len(buffer)
-                            percent = int(downloaded * 100 / total_length)
-                            win.after(
-                                0,
-                                lambda p=percent: (
-                                    bar.config(value=p),
-                                    percent_label.config(text=f"{p}%"),
-                                ),
-                            )
-                result["ok"] = True
-                win.after(0, win.destroy)
-            except Exception as e:
-                win.after(
-                    0,
-                    lambda: (
-                        win.destroy(),
-                        messagebox.showerror(
-                            T["download_failed"],
-                            T["download_failed_detail"].format(e),
-                            parent=parent,
-                        ),
-                    ),
-                )
-
-        threading.Thread(target=download_thread, daemon=True).start()
-        parent.wait_window(win)
-        return result["ok"] and os.path.exists(filename)
-
-    if not os.path.exists(IMAGEMAGICK_ZIP_NAME):
-        ok = download_with_progress(IMAGEMAGICK_ZIP_URL, IMAGEMAGICK_ZIP_NAME)
-        if not ok:
-            return None
-
-    if not os.path.exists(IMAGEMAGICK_UNZIP_DIR):
-        try:
-            with zipfile.ZipFile(IMAGEMAGICK_ZIP_NAME, "r") as zip_ref:
-                zip_ref.extractall(IMAGEMAGICK_UNZIP_DIR)
-        except Exception:
-            messagebox.showerror(
-                T["extract_failed"], T["extract_failed_detail"], parent=parent
-            )
-            return None
-
-    exe_candidate = find_magick_exe_recursive(IMAGEMAGICK_UNZIP_DIR)
-    if exe_candidate:
-        messagebox.showinfo(
-            T["magick_ready"],
-            T["magick_ready_info"].format(exe_candidate),
-            parent=parent,
-        )
-        return exe_candidate
-    else:
-        messagebox.showerror(
-            T["magick_not_found"], T["magick_not_found_detail"], parent=parent
-        )
-        return None
+    return find_magick_exe_recursive(IMAGEMAGICK_UNZIP_PATH)
 
 
-# --------- 開啟GIF資料夾 ---------
-def open_gif_folder(root_folder):
-    folder_path = os.path.join(root_folder, "gif")
-    try:
-        os.startfile(folder_path)
-    except FileNotFoundError:
-        messagebox.showerror(T["error"], T["not_found_folder"].format(folder_path))
+def download_file(url, filename, progress_cb=None, cancel_flag=None):
+    """
+    在背景執行緒下載檔案。
+    progress_cb(percent:int) 會被呼叫回報進度（呼叫端需自行 marshal 回主執行緒）。
+    cancel_flag 是一個 threading.Event，可用來中途取消。
+    """
+    with urllib.request.urlopen(url) as response, open(filename, "wb") as out_file:
+        total_length = response.getheader("content-length")
+        if total_length is None:
+            out_file.write(response.read())
+            return
+        total_length = int(total_length)
+        downloaded = 0
+        block_size = 8192
+        while True:
+            if cancel_flag is not None and cancel_flag.is_set():
+                out_file.close()
+                try:
+                    os.remove(filename)
+                except Exception:
+                    pass
+                raise InterruptedError("download canceled")
+            buffer = response.read(block_size)
+            if not buffer:
+                break
+            out_file.write(buffer)
+            downloaded += len(buffer)
+            if progress_cb:
+                percent = int(downloaded * 100 / total_length)
+                progress_cb(percent)
 
 
-# --------- 統一用magick轉換 ---------
-def convert_file(input_filepath, resize_height, parent=None):
+def extract_zip(zip_path, extract_to):
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall(extract_to)
+
+
+# ======================================================
+#  轉檔（純邏輯，執行緒安全，不觸碰任何 widget）
+# ======================================================
+def convert_file(input_filepath, resize_height, magick_exe):
     ext = os.path.splitext(input_filepath)[1].lower()
     if ext not in VALID_EXTENSIONS:
         return T["unsupported_type"].format(ext), "warn"
+
     input_dir = os.path.dirname(input_filepath)
     gif_dir = os.path.join(input_dir, "gif")
     if not os.path.exists(gif_dir):
@@ -330,9 +249,6 @@ def convert_file(input_filepath, resize_height, parent=None):
         gif_dir, os.path.splitext(os.path.basename(input_filepath))[0] + ".gif"
     )
 
-    magick_exe = check_and_download_imagemagick_zip(parent)
-    if not magick_exe:
-        return T["magick_missing_short"], "warn"
     try:
         cmd = [magick_exe, input_filepath]
         if resize_height:
@@ -347,47 +263,19 @@ def convert_file(input_filepath, resize_height, parent=None):
         return T["magick_convert_failed"].format(e), "err"
 
 
-# --------- 轉換執行緒 ---------
-def start_convert_thread(app):
-    def task():
-        app.btn_start.config(state=tk.DISABLED)
-        app.btn_open.config(state=tk.DISABLED)
-        input_folder = app.folder_var.get()
-        if not input_folder or input_folder == T["no_folder"]:
-            messagebox.showinfo(T["tip"], T["choose_folder"], parent=app.root)
-            app.btn_start.config(state=tk.NORMAL)
-            return
-
-        files_to_convert = []
-        for dirpath, _, filenames in os.walk(input_folder):
-            for filename in filenames:
-                ext = os.path.splitext(filename)[1].lower()
-                if ext in VALID_EXTENSIONS:
-                    files_to_convert.append(os.path.join(dirpath, filename))
-
-        total_files = len(files_to_convert)
-        if total_files == 0:
-            messagebox.showinfo(T["tip"], T["not_found_files"], parent=app.root)
-            app.btn_start.config(state=tk.NORMAL)
-            return
-
-        app.progressbar["value"] = 0
-        app.progressbar["maximum"] = total_files
-        app.status_var.set(T["converting"])
-
-        resize = app.height_var.get() if app.resize_var.get() else None
-
-        for idx, input_filepath in enumerate(files_to_convert, 1):
-            msg, kind = convert_file(input_filepath, resize, parent=app.root)
-            app.log_insert(msg, kind)
-            app.progressbar["value"] = idx
-            app.root.update_idletasks()
-
-        app.status_var.set(T["done"])
-        app.btn_open.config(state=tk.NORMAL)
-        app.btn_start.config(state=tk.NORMAL)
-
-    threading.Thread(target=task, daemon=True).start()
+# --------- 開啟 GIF 資料夾 ---------
+def open_gif_folder(root_folder, on_error=None):
+    folder_path = os.path.join(root_folder, "gif")
+    try:
+        if os.name == "nt":
+            os.startfile(folder_path)  # noqa: Windows-only API
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder_path])
+        else:
+            subprocess.Popen(["xdg-open", folder_path])
+    except (FileNotFoundError, AttributeError, OSError):
+        if on_error:
+            on_error(T["not_found_folder"].format(folder_path))
 
 
 # ======================================================
@@ -519,7 +407,7 @@ class App:
         badge_frame.pack(side="right", padx=20)
         tk.Label(
             badge_frame,
-            text="v 1.0",
+            text="v 1.1",
             bg=C["accent_bg"],
             fg=C["accent"],
             font=("Segoe UI", 8, "bold"),
@@ -671,7 +559,14 @@ class App:
         btn_bar.pack(side="right", padx=16, pady=10)
 
         self.btn_open = self._flat_btn(
-            btn_bar, T["open_gif"], lambda: open_gif_folder(self.folder_var.get())
+            btn_bar,
+            T["open_gif"],
+            lambda: open_gif_folder(
+                self.folder_var.get(),
+                on_error=lambda msg: messagebox.showerror(
+                    T["error"], msg, parent=self.root
+                ),
+            ),
         )
         self.btn_open.config(state=tk.DISABLED)
         self.btn_open.pack(side="left", padx=(0, 6))
@@ -681,7 +576,7 @@ class App:
         )
 
         self.btn_start = self._flat_btn(
-            btn_bar, T["start"], lambda: start_convert_thread(self), primary=True
+            btn_bar, T["start"], self._on_start_clicked, primary=True
         )
         self.btn_start.pack(side="left")
 
@@ -717,6 +612,214 @@ class App:
         self.progressbar["value"] = 0
         self.status_var.set(T["ready"])
         self.btn_open.config(state=tk.DISABLED)
+
+    # ==================================================
+    #  以下：thread-safe 的轉換流程
+    #  規則：背景執行緒只做「純運算 / IO」（下載、解壓縮、subprocess），
+    #        任何 widget 存取 / messagebox / Toplevel 一律透過
+    #        self.root.after(0, ...) 排回主執行緒執行。
+    # ==================================================
+
+    def _on_start_clicked(self):
+        input_folder = self.folder_var.get()
+        if not input_folder or input_folder == T["no_folder"]:
+            messagebox.showinfo(T["tip"], T["choose_folder"], parent=self.root)
+            return
+
+        files_to_convert = []
+        for dirpath, _, filenames in os.walk(input_folder):
+            for filename in filenames:
+                ext = os.path.splitext(filename)[1].lower()
+                if ext in VALID_EXTENSIONS:
+                    files_to_convert.append(os.path.join(dirpath, filename))
+
+        if not files_to_convert:
+            messagebox.showinfo(T["tip"], T["not_found_files"], parent=self.root)
+            return
+
+        # 先在主執行緒確認/取得 magick_exe（可能跳出對話框），
+        # 只詢問一次，之後整批轉換共用同一個路徑。
+        self.btn_start.config(state=tk.DISABLED)
+        self.btn_open.config(state=tk.DISABLED)
+
+        magick_exe = self._ensure_magick_on_main_thread()
+        if not magick_exe:
+            self.log_insert(T["magick_missing_short"], "warn")
+            self.btn_start.config(state=tk.NORMAL)
+            return
+
+        resize = self.height_var.get() if self.resize_var.get() else None
+        self.progressbar["value"] = 0
+        self.progressbar["maximum"] = len(files_to_convert)
+        self.status_var.set(T["converting"])
+
+        threading.Thread(
+            target=self._convert_worker,
+            args=(files_to_convert, resize, magick_exe),
+            daemon=True,
+        ).start()
+
+    def _convert_worker(self, files_to_convert, resize, magick_exe):
+        """背景執行緒：只做轉檔運算，UI 更新一律透過 root.after 排程。"""
+        for idx, input_filepath in enumerate(files_to_convert, 1):
+            msg, kind = convert_file(input_filepath, resize, magick_exe)
+            self.root.after(0, self._on_file_converted, msg, kind, idx)
+        self.root.after(0, self._on_batch_done)
+
+    def _on_file_converted(self, msg, kind, idx):
+        self.log_insert(msg, kind)
+        self.progressbar["value"] = idx
+
+    def _on_batch_done(self):
+        self.status_var.set(T["done"])
+        self.btn_open.config(state=tk.NORMAL)
+        self.btn_start.config(state=tk.NORMAL)
+
+    # --------------------------------------------------
+    #  ImageMagick 準備流程（主執行緒負責 GUI，背景執行緒負責下載/解壓）
+    # --------------------------------------------------
+    def _ensure_magick_on_main_thread(self):
+        """
+        在主執行緒呼叫：查找 → (若缺) 詢問使用者 → (若同意) 顯示進度視窗並
+        在背景執行緒下載，下載/解壓縮的 IO 在背景做，但視窗本身在主執行緒建立，
+        並透過 wait_window 同步等待（這是安全的，因為呼叫本身就在主執行緒）。
+        回傳 magick.exe 路徑，或 None（使用者取消/失敗）。
+        """
+        magick_exe = find_existing_magick()
+        if magick_exe:
+            return magick_exe
+
+        answer = messagebox.askyesno(
+            T["magick_missing_title"], T["magick_missing_msg"], parent=self.root
+        )
+        if not answer:
+            messagebox.showinfo(
+                T["operation_canceled"], T["magick_missing_stop"], parent=self.root
+            )
+            return None
+
+        ok = self._download_imagemagick_with_progress_dialog()
+        if not ok:
+            return None
+
+        if not os.path.exists(IMAGEMAGICK_UNZIP_PATH):
+            try:
+                extract_zip(IMAGEMAGICK_ZIP_PATH, IMAGEMAGICK_UNZIP_PATH)
+            except Exception:
+                messagebox.showerror(
+                    T["extract_failed"], T["extract_failed_detail"], parent=self.root
+                )
+                return None
+
+        exe_candidate = find_magick_exe_recursive(IMAGEMAGICK_UNZIP_PATH)
+        if exe_candidate:
+            messagebox.showinfo(
+                T["magick_ready"],
+                T["magick_ready_info"].format(exe_candidate),
+                parent=self.root,
+            )
+            return exe_candidate
+
+        messagebox.showerror(
+            T["magick_not_found"], T["magick_not_found_detail"], parent=self.root
+        )
+        return None
+
+    def _download_imagemagick_with_progress_dialog(self):
+        """
+        建立進度視窗（主執行緒），把實際下載丟到背景執行緒，
+        下載執行緒只透過 self.root.after 更新 UI，絕不直接碰 widget。
+        用 wait_window 同步等待對話框關閉（呼叫端本身在主執行緒，安全）。
+        """
+        if os.path.exists(IMAGEMAGICK_ZIP_PATH):
+            return True
+
+        win = tk.Toplevel(self.root)
+        win.title(T["download_title"])
+        win.geometry("420x160")
+        win.resizable(False, False)
+        win.configure(bg=C["bg"])
+        win.grab_set()
+
+        tk.Label(
+            win, text=T["downloading"], bg=C["bg"], fg=C["text"], font=("Segoe UI", 10)
+        ).pack(pady=(20, 8))
+
+        bar = ttk.Progressbar(
+            win, length=360, mode="determinate", style="Accent.Horizontal.TProgressbar"
+        )
+        bar.pack(pady=4)
+
+        percent_label = tk.Label(
+            win, text="0%", bg=C["bg"], fg=C["text2"], font=("Segoe UI", 9)
+        )
+        percent_label.pack()
+
+        cancel_event = threading.Event()
+
+        def on_cancel():
+            cancel_event.set()
+
+        tk.Button(
+            win,
+            text=T["cancel_download"],
+            command=on_cancel,
+            bg=C["surface"],
+            fg=C["text"],
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 9),
+            padx=14,
+            pady=5,
+            cursor="hand2",
+        ).pack(pady=12)
+
+        result = {"ok": False, "error": None}
+
+        def update_progress(percent):
+            # 從背景執行緒呼叫，排回主執行緒更新 widget
+            self.root.after(
+                0,
+                lambda: (
+                    bar.config(value=percent),
+                    percent_label.config(text=f"{percent}%"),
+                ),
+            )
+
+        def finish_ok():
+            result["ok"] = True
+            win.destroy()
+
+        def finish_error(err):
+            result["error"] = err
+            win.destroy()
+
+        def download_thread():
+            try:
+                download_file(
+                    IMAGEMAGICK_ZIP_URL,
+                    IMAGEMAGICK_ZIP_PATH,
+                    progress_cb=update_progress,
+                    cancel_flag=cancel_event,
+                )
+                self.root.after(0, finish_ok)
+            except InterruptedError:
+                self.root.after(0, win.destroy)
+            except Exception as e:
+                self.root.after(0, finish_error, e)
+
+        threading.Thread(target=download_thread, daemon=True).start()
+        self.root.wait_window(win)
+
+        if result["error"] is not None:
+            messagebox.showerror(
+                T["download_failed"],
+                T["download_failed_detail"].format(result["error"]),
+                parent=self.root,
+            )
+            return False
+
+        return result["ok"] and os.path.exists(IMAGEMAGICK_ZIP_PATH)
 
 
 # ─── 入口 ────────────────────────────────────────────

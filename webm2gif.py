@@ -407,7 +407,7 @@ class App:
         badge_frame.pack(side="right", padx=20)
         tk.Label(
             badge_frame,
-            text="v 1.1",
+            text="v 1.2",
             bg=C["accent_bg"],
             fg=C["accent"],
             font=("Segoe UI", 8, "bold"),

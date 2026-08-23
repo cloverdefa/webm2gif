@@ -6,7 +6,7 @@
 Support webm and webp files to gif.
 
 ## Download Link
-https://github.com/cloverdefa/webm2gif/releases/download/v1.0/webm2gif.exe
+https://github.com/cloverdefa/webm2gif/releases/download/webm2gif.exe
 
 ## Usage
 Usage:

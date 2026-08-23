@@ -1,11 +1,9 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows:
-      - Auto Merge
-    types:
-      - completed
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -13,14 +11,10 @@ permissions:
 
 jobs:
   release:
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request'
-
     runs-on: windows-latest
 
     steps:
-      - name: Get merged PR
+      - name: Check merge source
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
@@ -28,10 +22,12 @@ jobs:
         run: |
           $prs = gh api `
             -H "Accept: application/vnd.github+json" `
-            "/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/pull_requests"
+            "/repos/${{ github.repository }}/commits/${{ github.sha }}/pulls"
 
-          if (-not $prs) {
-            Write-Error "No pull request found for this workflow run."
+          if (-not $prs -or $prs -eq "[]") {
+            Write-Host "No pull request found for this commit."
+            "should_release=false" >> $env:GITHUB_OUTPUT
+            exit 0
           }
 
           $pr = $prs | ConvertFrom-Json | Select-Object -First 1
@@ -41,26 +37,16 @@ jobs:
           Write-Host "Base: $($pr.base.ref)"
 
           if (
-            $pr.base.ref -ne "main" -or
-            $pr.head.ref -ne "test"
+            $pr.base.ref -eq "main" -and
+            $pr.head.ref -eq "test"
           ) {
-            Write-Host "Not a test -> main PR. Skipping release."
+            Write-Host "Detected test -> main merge."
+            "should_release=true" >> $env:GITHUB_OUTPUT
+          }
+          else {
+            Write-Host "Not a test -> main merge. Skipping release."
             "should_release=false" >> $env:GITHUB_OUTPUT
-            exit 0
           }
-
-          $detail = gh api `
-            -H "Accept: application/vnd.github+json" `
-            "/repos/${{ github.repository }}/pulls/$($pr.number)"
-
-          $detail = $detail | ConvertFrom-Json
-
-          if (-not $detail.merged) {
-            Write-Error "PR #$($pr.number) has not been merged."
-          }
-
-          "should_release=true" >> $env:GITHUB_OUTPUT
-          "pr_number=$($pr.number)" >> $env:GITHUB_OUTPUT
 
       - name: Checkout
         if: steps.pr.outputs.should_release == 'true'

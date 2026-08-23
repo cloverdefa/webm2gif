@@ -1,7 +1,6 @@
 name: Release
 
 on:
-<<<<<<< HEAD
   push:
     branches:
       - main
@@ -48,69 +47,6 @@ jobs:
             Write-Host "Not a test -> main merge. Skipping release."
             "should_release=false" >> $env:GITHUB_OUTPUT
           }
-||||||| 38d6db2
-=======
-  workflow_run:
-    workflows:
-      - Auto Merge
-    types:
-      - completed
-
-permissions:
-  contents: write
-  pull-requests: read
-
-jobs:
-  release:
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request'
-
-    runs-on: windows-latest
-
-    steps:
-      - name: Get merged PR
-        id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: |
-          $prs = gh api `
-            -H "Accept: application/vnd.github+json" `
-            "/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/pull_requests"
-
-          if (-not $prs) {
-            Write-Error "No pull request found for this workflow run."
-          }
-
-          $pr = $prs | ConvertFrom-Json | Select-Object -First 1
-
-          Write-Host "PR #$($pr.number)"
-          Write-Host "Head: $($pr.head.ref)"
-          Write-Host "Base: $($pr.base.ref)"
-
-          if (
-            $pr.base.ref -ne "main" -or
-            $pr.head.ref -ne "test"
-          ) {
-            Write-Host "Not a test -> main PR. Skipping release."
-            "should_release=false" >> $env:GITHUB_OUTPUT
-            exit 0
-          }
-
-          $detail = gh api `
-            -H "Accept: application/vnd.github+json" `
-            "/repos/${{ github.repository }}/pulls/$($pr.number)"
-
-          $detail = $detail | ConvertFrom-Json
-
-          if (-not $detail.merged) {
-            Write-Error "PR #$($pr.number) has not been merged."
-          }
-
-          "should_release=true" >> $env:GITHUB_OUTPUT
-          "pr_number=$($pr.number)" >> $env:GITHUB_OUTPUT
->>>>>>> main
 
       - name: Checkout
         if: steps.pr.outputs.should_release == 'true'

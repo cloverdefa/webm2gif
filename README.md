@@ -1,18 +1,17 @@
-
-
-
 # webm2gif
 
 Support webm and webp files to gif.
 
-## Download Link
-https://github.com/cloverdefa/webm2gif/releases/download/webm2gif.exe
+## Download
+
+[Download webm2gif.exe](https://github.com/cloverdefa/webm2gif/releases/latest/download/webm2gif.exe)
 
 ## Usage
-Usage:
-```
-Run webm2gif.exe directly and select your folder then click on start. Just enjoy it.
-```
+
+Run `webm2gif.exe` directly, select your folder, then click **Start**.
+
+Just enjoy it.
+
 <div style="width: 80%; margin: auto;">
-  <img src="IMG/view.png" style="width: 50%; height: auto;" alt="Webm2Gif">  
+  <img src="IMG/view.png" style="width: 50%; height: auto;" alt="Webm2Gif">
 </div>

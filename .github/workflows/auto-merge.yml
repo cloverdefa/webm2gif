@@ -25,7 +25,7 @@ jobs:
     steps:
       - name: Enable auto-merge
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
 
         run: |
@@ -34,35 +34,4 @@ jobs:
             --auto \
             --squash
 
-      - name: Wait for merge
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
 
-        run: |
-          echo "Waiting for PR #$PR_NUMBER to be merged..."
-
-          for i in {1..60}; do
-            STATE=$(gh pr view "$PR_NUMBER" \
-              --repo "${{ github.repository }}" \
-              --json state \
-              --jq '.state')
-
-            MERGED_AT=$(gh pr view "$PR_NUMBER" \
-              --repo "${{ github.repository }}" \
-              --json mergedAt \
-              --jq '.mergedAt')
-
-            echo "State: $STATE"
-            echo "Merged at: $MERGED_AT"
-
-            if [ "$STATE" = "MERGED" ]; then
-              echo "PR #$PR_NUMBER has been merged."
-              exit 0
-            fi
-
-            sleep 10
-          done
-
-          echo "Timed out waiting for PR to merge."
-          exit 1

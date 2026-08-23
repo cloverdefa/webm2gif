@@ -1,44 +1,92 @@
 name: Release
 
 on:
-  pull_request:
+  workflow_run:
+    workflows:
+      - Auto Merge
     types:
-      - closed
-    branches:
-      - main
+      - completed
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   release:
     if: >
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.head.ref == 'test'
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
 
     runs-on: windows-latest
 
     steps:
+      - name: Get merged PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $prs = gh api `
+            -H "Accept: application/vnd.github+json" `
+            "/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/pull_requests"
+
+          if (-not $prs) {
+            Write-Error "No pull request found for this workflow run."
+          }
+
+          $pr = $prs | ConvertFrom-Json | Select-Object -First 1
+
+          Write-Host "PR #$($pr.number)"
+          Write-Host "Head: $($pr.head.ref)"
+          Write-Host "Base: $($pr.base.ref)"
+
+          if (
+            $pr.base.ref -ne "main" -or
+            $pr.head.ref -ne "test"
+          ) {
+            Write-Host "Not a test -> main PR. Skipping release."
+            "should_release=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          $detail = gh api `
+            -H "Accept: application/vnd.github+json" `
+            "/repos/${{ github.repository }}/pulls/$($pr.number)"
+
+          $detail = $detail | ConvertFrom-Json
+
+          if (-not $detail.merged) {
+            Write-Error "PR #$($pr.number) has not been merged."
+          }
+
+          "should_release=true" >> $env:GITHUB_OUTPUT
+          "pr_number=$($pr.number)" >> $env:GITHUB_OUTPUT
+
       - name: Checkout
+        if: steps.pr.outputs.should_release == 'true'
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
       - name: Setup Python
+        if: steps.pr.outputs.should_release == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
       - name: Install dependencies
+        if: steps.pr.outputs.should_release == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller py7zr
 
       - name: Build executable
+        if: steps.pr.outputs.should_release == 'true'
         run: pyinstaller webm2gif.spec
 
       - name: Get next version
+        if: steps.pr.outputs.should_release == 'true'
         id: version
         shell: pwsh
         run: |
@@ -47,7 +95,7 @@ jobs:
           $tags = git tag --list "v1.0.*"
 
           if (-not $tags) {
-            $patch = 0
+            $patch = 1
           }
           else {
             $patch = ($tags |
@@ -66,6 +114,7 @@ jobs:
           echo "tag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Create Release
+        if: steps.pr.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}

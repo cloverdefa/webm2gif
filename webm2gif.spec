@@ -5,19 +5,28 @@ datas = []
 binaries = []
 hiddenimports = []
 
-# py7zr 及其相依套件：一次收集模組、二進位檔、資料檔
-for pkg in ['py7zr', 'pyppmd', 'pybcj', 'pyzstd', 'brotli',
-            'inflate64', 'multivolumefile', 'texttable', 'psutil']:
-    d, b, h = collect_all(pkg)
-    datas += d
-    binaries += b
-    hiddenimports += h
+# py7zr 及其「可能」用到的相依套件；用 try/except 容錯，
+# 因為不同 py7zr 版本 / python 版本實際安裝的子依賴會不同
+_candidates = [
+    'py7zr', 'pyppmd', 'pybcj', 'pyzstd', 'brotli', 'brotlicffi',
+    'inflate64', 'multivolumefile', 'texttable', 'psutil',
+    'pycryptodomex', 'backports.zstd',
+]
 
-# py7zr 用 importlib.metadata 讀套件版本，需要把 dist-info 一併帶入
-for pkg in ['py7zr', 'pyppmd', 'pybcj', 'pyzstd', 'brotli',
-            'inflate64', 'multivolumefile', 'texttable', 'psutil',
-            'pycryptodomex']:
-    datas += copy_metadata(pkg)
+for pkg in _candidates:
+    try:
+        d, b, h = collect_all(pkg)
+        datas += d
+        binaries += b
+        hiddenimports += h
+    except Exception:
+        pass  # 該套件未安裝或非套件形式，略過
+
+for pkg in _candidates:
+    try:
+        datas += copy_metadata(pkg)
+    except Exception:
+        pass  # 找不到 metadata 就略過
 
 a = Analysis(
     ['webm2gif.py'],

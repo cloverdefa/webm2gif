@@ -9,7 +9,11 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import shutil
 import urllib.request
-import zipfile
+
+try:
+    import py7zr
+except ImportError:
+    py7zr = None
 
 
 # ---------- 自動語言偵測 ----------
@@ -44,8 +48,10 @@ L = {
         "download_failed_detail": "自動下載 ImageMagick 失敗。\n{}",
         "extract_failed": "解壓縮異常",
         "extract_failed_detail": "ImageMagick 解壓縮異常。",
+        "py7zr_missing_title": "缺少解壓縮套件",
+        "py7zr_missing_detail": "自動解壓縮需要 py7zr 套件，但未安裝。\n請執行：pip install py7zr",
         "magick_missing_title": "缺少 ImageMagick",
-        "magick_missing_msg": "未偵測到 ImageMagick（magick.exe），是否自動下載並解壓縮便攜版到本機？\n（約45MB，下載後無需安裝）",
+        "magick_missing_msg": "未偵測到 ImageMagick（magick.exe），是否自動下載並解壓縮便攜版到本機？\n（約11MB，下載後無需安裝）",
         "operation_canceled": "操作已取消",
         "magick_missing_stop": "未偵測到 ImageMagick，轉換已終止。",
         "magick_ready": "ImageMagick 已準備好",
@@ -85,8 +91,10 @@ L = {
         "download_failed_detail": "Failed to download ImageMagick automatically.\n{}",
         "extract_failed": "Extraction Error",
         "extract_failed_detail": "Failed to extract ImageMagick.",
+        "py7zr_missing_title": "Missing Extraction Package",
+        "py7zr_missing_detail": "Automatic extraction requires the py7zr package, which is not installed.\nRun: pip install py7zr",
         "magick_missing_title": "ImageMagick Missing",
-        "magick_missing_msg": "ImageMagick (magick.exe) not found. Download and extract the portable version now?\n(about 45MB, no installation required)",
+        "magick_missing_msg": "ImageMagick (magick.exe) not found. Download and extract the portable version now?\n(about 11MB, no installation required)",
         "operation_canceled": "Operation canceled",
         "magick_missing_stop": "ImageMagick not found, conversion stopped.",
         "magick_ready": "ImageMagick Ready",
@@ -125,11 +133,16 @@ T = L[lang]
 # 注意：.webp 為圖片格式（可能含動態 webp），.webm 為影片格式，
 # 若僅需支援影片，可移除 ".webp"。這裡沿用原始設定。
 VALID_EXTENSIONS = {".webp", ".webm"}
-IMAGEMAGICK_ZIP_URL = (
-    "https://imagemagick.org/archive/binaries/ImageMagick-7.1.1-47-portable-Q16-x64.zip"
+
+# ImageMagick 官方目前僅提供 .7z 格式的可攜版封裝（不再提供 .zip），
+# 因此改用 py7zr 進行解壓縮。版本已更新至目前官方最新版 7.1.2-29。
+IMAGEMAGICK_VERSION = "7.1.2-29"
+IMAGEMAGICK_ARCHIVE_NAME = f"ImageMagick-{IMAGEMAGICK_VERSION}-portable-Q16-x64.7z"
+IMAGEMAGICK_ARCHIVE_URL = (
+    f"https://github.com/ImageMagick/ImageMagick/releases/download/"
+    f"{IMAGEMAGICK_VERSION}/{IMAGEMAGICK_ARCHIVE_NAME}"
 )
-IMAGEMAGICK_ZIP_NAME = "ImageMagick-7.1.1-47-portable-Q16-x64.zip"
-IMAGEMAGICK_UNZIP_DIR = "ImageMagick-7.1.1-47-portable-Q16-x64"
+IMAGEMAGICK_EXTRACT_DIR = f"ImageMagick-{IMAGEMAGICK_VERSION}-portable-Q16-x64"
 
 # --------- 色票（暖灰 + Teal 強調色）----------
 C = {
@@ -154,7 +167,7 @@ C = {
 # --------- 相容 PyInstaller / 直接執行 的基準路徑 ---------
 def get_base_dir():
     """
-    回傳一個可寫入的穩定目錄，用來存放下載的 ImageMagick zip/解壓縮結果。
+    回傳一個可寫入的穩定目錄，用來存放下載的 ImageMagick 壓縮檔/解壓縮結果。
     - 打包成 exe (PyInstaller, frozen) 時：使用 exe 所在目錄。
     - 直接以 .py 執行時：使用該 .py 檔案所在目錄。
     這避免了「相對路徑」在不同工作目錄啟動時，每次都重新下載或寫入失敗的問題。
@@ -172,8 +185,8 @@ def resource_path(relative_path):
 
 
 BASE_DIR = get_base_dir()
-IMAGEMAGICK_ZIP_PATH = os.path.join(BASE_DIR, IMAGEMAGICK_ZIP_NAME)
-IMAGEMAGICK_UNZIP_PATH = os.path.join(BASE_DIR, IMAGEMAGICK_UNZIP_DIR)
+IMAGEMAGICK_ARCHIVE_PATH = os.path.join(BASE_DIR, IMAGEMAGICK_ARCHIVE_NAME)
+IMAGEMAGICK_EXTRACT_PATH = os.path.join(BASE_DIR, IMAGEMAGICK_EXTRACT_DIR)
 
 
 # ======================================================
@@ -193,7 +206,7 @@ def find_existing_magick():
     magick_path = shutil.which("magick")
     if magick_path:
         return magick_path
-    return find_magick_exe_recursive(IMAGEMAGICK_UNZIP_PATH)
+    return find_magick_exe_recursive(IMAGEMAGICK_EXTRACT_PATH)
 
 
 def download_file(url, filename, progress_cb=None, cancel_flag=None):
@@ -228,9 +241,12 @@ def download_file(url, filename, progress_cb=None, cancel_flag=None):
                 progress_cb(percent)
 
 
-def extract_zip(zip_path, extract_to):
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(extract_to)
+def extract_archive(archive_path, extract_to):
+    """解壓縮 .7z 檔案（ImageMagick 官方可攜版目前僅提供此格式）。"""
+    if py7zr is None:
+        raise RuntimeError("py7zr not installed")
+    with py7zr.SevenZipFile(archive_path, mode="r") as archive:
+        archive.extractall(path=extract_to)
 
 
 # ======================================================
@@ -397,23 +413,6 @@ class App:
             fg=C["text3"],
             font=("Segoe UI", 9),
         ).pack(anchor="w")
-
-        badge_frame = tk.Frame(
-            header,
-            bg=C["accent_bg"],
-            highlightbackground=C["accent"],
-            highlightthickness=1,
-        )
-        badge_frame.pack(side="right", padx=20)
-        tk.Label(
-            badge_frame,
-            text="v 1.2",
-            bg=C["accent_bg"],
-            fg=C["accent"],
-            font=("Segoe UI", 8, "bold"),
-            padx=8,
-            pady=3,
-        ).pack()
 
         # ━━ 捲動主體 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         body = tk.Frame(root, bg=C["bg"])
@@ -689,6 +688,12 @@ class App:
         if magick_exe:
             return magick_exe
 
+        if py7zr is None:
+            messagebox.showerror(
+                T["py7zr_missing_title"], T["py7zr_missing_detail"], parent=self.root
+            )
+            return None
+
         answer = messagebox.askyesno(
             T["magick_missing_title"], T["magick_missing_msg"], parent=self.root
         )
@@ -702,16 +707,16 @@ class App:
         if not ok:
             return None
 
-        if not os.path.exists(IMAGEMAGICK_UNZIP_PATH):
+        if not os.path.exists(IMAGEMAGICK_EXTRACT_PATH):
             try:
-                extract_zip(IMAGEMAGICK_ZIP_PATH, IMAGEMAGICK_UNZIP_PATH)
+                extract_archive(IMAGEMAGICK_ARCHIVE_PATH, IMAGEMAGICK_EXTRACT_PATH)
             except Exception:
                 messagebox.showerror(
                     T["extract_failed"], T["extract_failed_detail"], parent=self.root
                 )
                 return None
 
-        exe_candidate = find_magick_exe_recursive(IMAGEMAGICK_UNZIP_PATH)
+        exe_candidate = find_magick_exe_recursive(IMAGEMAGICK_EXTRACT_PATH)
         if exe_candidate:
             messagebox.showinfo(
                 T["magick_ready"],
@@ -731,7 +736,7 @@ class App:
         下載執行緒只透過 self.root.after 更新 UI，絕不直接碰 widget。
         用 wait_window 同步等待對話框關閉（呼叫端本身在主執行緒，安全）。
         """
-        if os.path.exists(IMAGEMAGICK_ZIP_PATH):
+        if os.path.exists(IMAGEMAGICK_ARCHIVE_PATH):
             return True
 
         win = tk.Toplevel(self.root)
@@ -797,8 +802,8 @@ class App:
         def download_thread():
             try:
                 download_file(
-                    IMAGEMAGICK_ZIP_URL,
-                    IMAGEMAGICK_ZIP_PATH,
+                    IMAGEMAGICK_ARCHIVE_URL,
+                    IMAGEMAGICK_ARCHIVE_PATH,
                     progress_cb=update_progress,
                     cancel_flag=cancel_event,
                 )
@@ -819,7 +824,7 @@ class App:
             )
             return False
 
-        return result["ok"] and os.path.exists(IMAGEMAGICK_ZIP_PATH)
+        return result["ok"] and os.path.exists(IMAGEMAGICK_ARCHIVE_PATH)
 
 
 # ─── 入口 ────────────────────────────────────────────

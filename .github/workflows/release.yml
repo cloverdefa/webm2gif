@@ -25,13 +25,13 @@ permissions:
 jobs:
   release:
     if: >
-      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
       (
-        github.event.pull_request.merged == true &&
-        github.event.pull_request.base.ref == 'main' &&
-        github.event.pull_request.head.ref == 'test'
+        github.event.pull_request.head.ref == 'test' ||
+        github.event.pull_request.head.ref == 'dev'
       )
-
+      
     runs-on: windows-latest
 
     steps:
@@ -66,15 +66,6 @@ jobs:
           python -m pip install pyinstaller py7zr
 
       # ============================================================
-      # Build executable
-      # ============================================================
-
-      - name: Build executable
-        shell: pwsh
-        run: |
-          pyinstaller webm2gif.spec
-
-      # ============================================================
       # Get next version
       # ============================================================
 
@@ -88,10 +79,15 @@ jobs:
 
           # ----------------------------------------------------------
           # Find latest semantic version tag
+          #
+          # Supported:
+          #   v1.0.0
+          #   v1.1.0
+          #   v2.0.0
           # ----------------------------------------------------------
 
           $latestTag = @(
-            git tag --list "v*" |
+            git tag --list "v*.*.*" |
             Where-Object {
               $_ -match '^v[0-9]+\.[0-9]+\.[0-9]+$'
             } |
@@ -107,32 +103,156 @@ jobs:
           ) |
           Select-Object -Last 1
 
+          Write-Host "Latest tag: $latestTag"
+
           # ----------------------------------------------------------
           # Determine release type
           #
-          # PR merge:
-          #   patch
+          # workflow_dispatch:
+          #   Use manually selected release type.
           #
-          # Manual:
-          #   patch / minor / major
+          # pull_request:
+          #   Analyze commits since latest release.
+          #
+          # Priority:
+          #   major > minor > patch > none
           # ----------------------------------------------------------
 
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+
             $releaseType = "${{ inputs.release_type }}"
+
+            Write-Host "Trigger: workflow_dispatch"
+            Write-Host "Release type: $releaseType"
+
           }
           else {
-            $releaseType = "patch"
-          }
 
-          Write-Host "Latest tag: $latestTag"
-          Write-Host "Release type: $releaseType"
+            $releaseType = "none"
+
+            Write-Host "Trigger: pull_request"
+            Write-Host "Analyzing commits since latest release..."
+
+            # --------------------------------------------------------
+            # Get commits
+            #
+            # Use ASCII Record Separator (0x1E) to separate commits.
+            # This prevents commit body lines from being treated as
+            # independent commits.
+            # --------------------------------------------------------
+
+            if ($latestTag) {
+
+              $log = git log `
+                "$latestTag..HEAD" `
+                --pretty=format:"%x1e%s%n%b"
+
+            }
+            else {
+
+              $log = git log `
+                --pretty=format:"%x1e%s%n%b"
+
+            }
+
+            $commits = $log -split "`x1e" |
+              Where-Object {
+                $_.Trim() -ne ""
+              }
+
+            foreach ($commit in $commits) {
+
+              $commit = $commit.Trim()
+
+              Write-Host "----------------------------------------"
+              Write-Host "Commit:"
+              Write-Host $commit
+
+              # ------------------------------------------------------
+              # MAJOR
+              #
+              # Examples:
+              #   feat!: ...
+              #   fix!: ...
+              #   refactor!: ...
+              #   feat(scope)!: ...
+              #
+              # Also:
+              #   BREAKING CHANGE:
+              # ------------------------------------------------------
+
+              if (
+                $commit -match '^[a-zA-Z0-9_-]+(\([^)]*\))?!:' -or
+                $commit -match 'BREAKING CHANGE:'
+              ) {
+                $releaseType = "major"
+                continue
+              }
+
+              # ------------------------------------------------------
+              # MINOR
+              #
+              # Examples:
+              #   feat: ...
+              #   feat(scope): ...
+              # ------------------------------------------------------
+
+              if ($commit -match '^feat(\([^)]*\))?:') {
+
+                if ($releaseType -ne "major") {
+                  $releaseType = "minor"
+                }
+
+                continue
+              }
+
+              # ------------------------------------------------------
+              # PATCH
+              #
+              # Examples:
+              #   fix: ...
+              #   fix(scope): ...
+              # ------------------------------------------------------
+
+              if ($commit -match '^fix(\([^)]*\))?:') {
+
+                if ($releaseType -eq "none") {
+                  $releaseType = "patch"
+                }
+
+                continue
+              }
+            }
+
+            Write-Host "----------------------------------------"
+            Write-Host "Detected release type: $releaseType"
+
+            # --------------------------------------------------------
+            # No release required
+            # --------------------------------------------------------
+
+            if ($releaseType -eq "none") {
+
+              Write-Host "No release required."
+
+              "should_release=false" |
+                Out-File `
+                  -FilePath $env:GITHUB_OUTPUT `
+                  -Append `
+                  -Encoding utf8
+
+              exit 0
+            }
+          }
 
           # ----------------------------------------------------------
           # Calculate next version
           # ----------------------------------------------------------
 
           if (-not $latestTag) {
+
             switch ($releaseType) {
+
               "patch" {
                 $major = 0
                 $minor = 1
@@ -155,8 +275,10 @@ jobs:
                 throw "Invalid release type: $releaseType"
               }
             }
+
           }
           else {
+
             $parts = $latestTag.Substring(1).Split('.')
 
             $major = [int]$parts[0]
@@ -164,6 +286,7 @@ jobs:
             $patch = [int]$parts[2]
 
             switch ($releaseType) {
+
               "patch" {
                 $patch++
               }
@@ -196,30 +319,80 @@ jobs:
             throw "Tag $tag already exists."
           }
 
+          Write-Host "Release type: $releaseType"
           Write-Host "Next version: $version"
-          Write-Host "Release tag:  $tag"
+          Write-Host "Release tag: $tag"
 
-          "version=$version" | Out-File `
-            -FilePath $env:GITHUB_OUTPUT `
-            -Append `
-            -Encoding utf8
+          # ----------------------------------------------------------
+          # GitHub Actions outputs
+          # ----------------------------------------------------------
 
-          "tag=$tag" | Out-File `
-            -FilePath $env:GITHUB_OUTPUT `
-            -Append `
-            -Encoding utf8
+          "should_release=true" |
+            Out-File `
+              -FilePath $env:GITHUB_OUTPUT `
+              -Append `
+              -Encoding utf8
+
+          "release_type=$releaseType" |
+            Out-File `
+              -FilePath $env:GITHUB_OUTPUT `
+              -Append `
+              -Encoding utf8
+
+          "version=$version" |
+            Out-File `
+              -FilePath $env:GITHUB_OUTPUT `
+              -Append `
+              -Encoding utf8
+
+          "tag=$tag" |
+            Out-File `
+              -FilePath $env:GITHUB_OUTPUT `
+              -Append `
+              -Encoding utf8
 
       # ============================================================
-      # Create Release
+      # Build executable
+      # ============================================================
+
+      - name: Build executable
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          pyinstaller webm2gif.spec
+
+      # ============================================================
+      # Verify executable
+      # ============================================================
+
+      - name: Verify executable
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          $exe = "dist\webm2gif.exe"
+
+          if (-not (Test-Path $exe)) {
+            throw "Build failed: $exe not found"
+          }
+
+          $size = (Get-Item $exe).Length / 1MB
+
+          Write-Host "Build succeeded."
+          Write-Host "Executable: $exe"
+          Write-Host ("Size: {0:N2} MB" -f $size)
+
+      # ============================================================
+      # Create GitHub Release
       # ============================================================
 
       - name: Create Release
+        if: steps.version.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: main
-          name: v${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           files: |
             dist/webm2gif.exe

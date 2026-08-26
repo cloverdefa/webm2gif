@@ -337,7 +337,7 @@ PyInstaller 設定則將 `py7zr` 及相關相依套件納入打包，以支援 R
 
 ## 專案連結
 
-[GitHub Repository](https://github.com/cloverdefa/webm2gif?utm_source=chatgpt.com)
+[GitHub Repository](https://github.com/cloverdefa/webm2gif)
 
-[GitHub Releases](https://github.com/cloverdefa/webm2gif/releases?utm_source=chatgpt.com)
+[GitHub Releases](https://github.com/cloverdefa/webm2gif/releases)
 

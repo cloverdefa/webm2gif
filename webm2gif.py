@@ -52,6 +52,15 @@ L = {
         "py7zr_missing_detail": "自動解壓縮需要 py7zr 套件，但未安裝。\n請執行：pip install py7zr",
         "magick_missing_title": "缺少 ImageMagick",
         "magick_missing_msg": "未偵測到 ImageMagick（magick.exe），是否自動下載並解壓縮便攜版到本機？\n（約11MB，下載後無需安裝）",
+        # 新增：非 Windows 平台的提示（macOS / Linux / Raspberry Pi）
+        "magick_missing_unix_title": "缺少 ImageMagick",
+        "magick_missing_unix_msg": (
+            "未偵測到 ImageMagick。自動下載功能僅提供 Windows 便攜版，"
+            "無法在目前系統上使用。\n\n請改用套件管理器安裝，例如：\n"
+            "  macOS: brew install imagemagick\n"
+            "  Debian/Ubuntu/Raspberry Pi OS: sudo apt install imagemagick\n\n"
+            "安裝完成後請重新啟動本程式。"
+        ),
         "operation_canceled": "操作已取消",
         "magick_missing_stop": "未偵測到 ImageMagick，轉換已終止。",
         "magick_ready": "ImageMagick 已準備好",
@@ -82,6 +91,9 @@ L = {
         "converting": "轉換中…",
         "done": "完成",
         "files_found": "找到 {} 個檔案",
+        # 新增：多個輸出資料夾時的提示
+        "multi_output_note": "偵測到多個輸出資料夾（來源含子資料夾），已開啟上層來源資料夾。",
+        "no_output_yet": "尚無成功轉換的輸出資料夾。",
     },
     "en": {
         "download_title": "Downloading ImageMagick ...",
@@ -95,6 +107,16 @@ L = {
         "py7zr_missing_detail": "Automatic extraction requires the py7zr package, which is not installed.\nRun: pip install py7zr",
         "magick_missing_title": "ImageMagick Missing",
         "magick_missing_msg": "ImageMagick (magick.exe) not found. Download and extract the portable version now?\n(about 11MB, no installation required)",
+        # New: message for non-Windows platforms (macOS / Linux / Raspberry Pi)
+        "magick_missing_unix_title": "ImageMagick Missing",
+        "magick_missing_unix_msg": (
+            "ImageMagick was not found. Automatic download only provides the "
+            "Windows portable build and cannot be used on this system.\n\n"
+            "Please install it via your package manager instead, e.g.:\n"
+            "  macOS: brew install imagemagick\n"
+            "  Debian/Ubuntu/Raspberry Pi OS: sudo apt install imagemagick\n\n"
+            "Restart this app after installing."
+        ),
         "operation_canceled": "Operation canceled",
         "magick_missing_stop": "ImageMagick not found, conversion stopped.",
         "magick_ready": "ImageMagick Ready",
@@ -125,6 +147,9 @@ L = {
         "converting": "Converting…",
         "done": "Done",
         "files_found": "{} files found",
+        # New: note when multiple output folders exist
+        "multi_output_note": "Multiple output folders found (source has subfolders); opened the parent source folder instead.",
+        "no_output_yet": "No successful conversion output yet.",
     },
 }
 T = L[lang]
@@ -136,6 +161,7 @@ VALID_EXTENSIONS = {".webp", ".webm"}
 
 # ImageMagick 官方目前僅提供 .7z 格式的可攜版封裝（不再提供 .zip），
 # 因此改用 py7zr 進行解壓縮。版本已更新至目前官方最新版 7.1.2-29。
+# 注意：此便攜版下載僅適用於 Windows，見 _ensure_magick_on_main_thread 的平台判斷。
 IMAGEMAGICK_VERSION = "7.1.2-29"
 IMAGEMAGICK_ARCHIVE_NAME = f"ImageMagick-{IMAGEMAGICK_VERSION}-portable-Q16-x64.7z"
 IMAGEMAGICK_ARCHIVE_URL = (
@@ -241,6 +267,21 @@ def download_file(url, filename, progress_cb=None, cancel_flag=None):
                 progress_cb(percent)
 
 
+def is_valid_7z(archive_path):
+    """
+    修正點：先前程式只檢查壓縮檔「是否存在」就判定下載完成並直接跳到解壓縮，
+    若上次下載中途被中斷/損毀（例如程式被強制關閉），會導致解壓縮失敗，
+    且錯誤訊息無法讓使用者知道真正原因。這裡實際嘗試開啟 7z 檔頭做驗證。
+    """
+    if py7zr is None or not os.path.exists(archive_path):
+        return False
+    try:
+        with py7zr.SevenZipFile(archive_path, mode="r"):
+            return True
+    except Exception:
+        return False
+
+
 def extract_archive(archive_path, extract_to):
     """解壓縮 .7z 檔案（ImageMagick 官方可攜版目前僅提供此格式）。"""
     if py7zr is None:
@@ -253,9 +294,15 @@ def extract_archive(archive_path, extract_to):
 #  轉檔（純邏輯，執行緒安全，不觸碰任何 widget）
 # ======================================================
 def convert_file(input_filepath, resize_height, magick_exe):
+    """
+    回傳 (msg, kind, output_dir_or_None)。
+    修正點：新增回傳實際輸出資料夾路徑，讓 UI 端可以正確得知每個檔案
+    真正輸出到哪裡（來源資料夾可能包含子資料夾，輸出的 gif/ 會建立在
+    各自檔案所在的子資料夾底下，而非統一在使用者選擇的根資料夾）。
+    """
     ext = os.path.splitext(input_filepath)[1].lower()
     if ext not in VALID_EXTENSIONS:
-        return T["unsupported_type"].format(ext), "warn"
+        return T["unsupported_type"].format(ext), "warn", None
 
     input_dir = os.path.dirname(input_filepath)
     gif_dir = os.path.join(input_dir, "gif")
@@ -274,14 +321,13 @@ def convert_file(input_filepath, resize_height, magick_exe):
         if os.name == "nt":
             creationflags = subprocess.CREATE_NO_WINDOW
         subprocess.check_call(cmd, creationflags=creationflags)
-        return T["success"].format(os.path.basename(output_filename)), "ok"
+        return T["success"].format(os.path.basename(output_filename)), "ok", gif_dir
     except Exception as e:
-        return T["magick_convert_failed"].format(e), "err"
+        return T["magick_convert_failed"].format(e), "err", None
 
 
-# --------- 開啟 GIF 資料夾 ---------
-def open_gif_folder(root_folder, on_error=None):
-    folder_path = os.path.join(root_folder, "gif")
+# --------- 開啟資料夾（共用小工具） ---------
+def open_folder(folder_path, on_error=None):
     try:
         if os.name == "nt":
             os.startfile(folder_path)  # noqa: Windows-only API
@@ -304,6 +350,10 @@ class App:
         self.root.geometry("560x590")
         self.root.resizable(False, False)
         self.root.configure(bg=C["bg"])
+
+        # 修正點：改用集合追蹤本次批次實際產生的輸出資料夾，
+        # 「開啟輸出資料夾」按鈕才能對應到真正的輸出位置。
+        self.output_dirs = set()
 
         self._setup_styles()
         self._build_ui()
@@ -557,15 +607,12 @@ class App:
         btn_bar = tk.Frame(footer, bg=C["surface"])
         btn_bar.pack(side="right", padx=16, pady=10)
 
+        # 修正點：改呼叫 self._open_output_folder，而不是直接假設
+        # 輸出資料夾一定在「所選根資料夾/gif」底下。
         self.btn_open = self._flat_btn(
             btn_bar,
             T["open_gif"],
-            lambda: open_gif_folder(
-                self.folder_var.get(),
-                on_error=lambda msg: messagebox.showerror(
-                    T["error"], msg, parent=self.root
-                ),
-            ),
+            self._open_output_folder,
         )
         self.btn_open.config(state=tk.DISABLED)
         self.btn_open.pack(side="left", padx=(0, 6))
@@ -611,6 +658,44 @@ class App:
         self.progressbar["value"] = 0
         self.status_var.set(T["ready"])
         self.btn_open.config(state=tk.DISABLED)
+        self.output_dirs = set()
+
+    # ── 開啟輸出資料夾（修正版） ──────────────────────
+    def _open_output_folder(self):
+        """
+        修正點：原本永遠嘗試開啟「所選根資料夾/gif」，但由於轉換是遞迴掃描
+        子資料夾、每個檔案的 GIF 會輸出到「該檔案所在資料夾/gif」，
+        當來源檔案分散在子資料夾時，根資料夾底下根本不會有 gif/，
+        按鈕會直接跳出「找不到資料夾」的錯誤。
+
+        現在改為：
+        - 完全沒有輸出紀錄 -> 提示尚無輸出。
+        - 只有一個輸出資料夾 -> 直接開啟它。
+        - 有多個輸出資料夾（來源含多層子資料夾）-> 開啟這些輸出資料夾的
+          共同上層資料夾，並在紀錄區提示使用者。
+        """
+        if not self.output_dirs:
+            messagebox.showinfo(T["tip"], T["no_output_yet"], parent=self.root)
+            return
+
+        dirs = list(self.output_dirs)
+        if len(dirs) == 1:
+            open_folder(
+                dirs[0],
+                on_error=lambda msg: messagebox.showerror(
+                    T["error"], msg, parent=self.root
+                ),
+            )
+            return
+
+        common = os.path.commonpath(dirs)
+        self.log_insert(T["multi_output_note"], "warn")
+        open_folder(
+            common,
+            on_error=lambda msg: messagebox.showerror(
+                T["error"], msg, parent=self.root
+            ),
+        )
 
     # ==================================================
     #  以下：thread-safe 的轉換流程
@@ -640,6 +725,7 @@ class App:
         # 只詢問一次，之後整批轉換共用同一個路徑。
         self.btn_start.config(state=tk.DISABLED)
         self.btn_open.config(state=tk.DISABLED)
+        self.output_dirs = set()
 
         magick_exe = self._ensure_magick_on_main_thread()
         if not magick_exe:
@@ -661,13 +747,15 @@ class App:
     def _convert_worker(self, files_to_convert, resize, magick_exe):
         """背景執行緒：只做轉檔運算，UI 更新一律透過 root.after 排程。"""
         for idx, input_filepath in enumerate(files_to_convert, 1):
-            msg, kind = convert_file(input_filepath, resize, magick_exe)
-            self.root.after(0, self._on_file_converted, msg, kind, idx)
+            msg, kind, gif_dir = convert_file(input_filepath, resize, magick_exe)
+            self.root.after(0, self._on_file_converted, msg, kind, idx, gif_dir)
         self.root.after(0, self._on_batch_done)
 
-    def _on_file_converted(self, msg, kind, idx):
+    def _on_file_converted(self, msg, kind, idx, gif_dir=None):
         self.log_insert(msg, kind)
         self.progressbar["value"] = idx
+        if gif_dir:
+            self.output_dirs.add(gif_dir)
 
     def _on_batch_done(self):
         self.status_var.set(T["done"])
@@ -687,6 +775,18 @@ class App:
         magick_exe = find_existing_magick()
         if magick_exe:
             return magick_exe
+
+        # 修正點：自動下載的可攜版 ImageMagick 只提供 Windows x64 build，
+        # 在 macOS / Linux（包含 Raspberry Pi）上下載回來的 magick.exe
+        # 根本無法執行。過去程式會不分平台一律嘗試下載，導致在非 Windows
+        # 環境上功能完全失效且錯誤訊息不明確。這裡改為依平台分流。
+        if os.name != "nt":
+            messagebox.showerror(
+                T["magick_missing_unix_title"],
+                T["magick_missing_unix_msg"],
+                parent=self.root,
+            )
+            return None
 
         if py7zr is None:
             messagebox.showerror(
@@ -711,6 +811,13 @@ class App:
             try:
                 extract_archive(IMAGEMAGICK_ARCHIVE_PATH, IMAGEMAGICK_EXTRACT_PATH)
             except Exception:
+                # 修正點：解壓縮失敗代表壓縮檔可能已損毀，刪除後讓使用者
+                # 下次可以重新觸發乾淨的下載，而不是卡在一個永遠解壓縮
+                # 失敗的殘留檔案上。
+                try:
+                    os.remove(IMAGEMAGICK_ARCHIVE_PATH)
+                except Exception:
+                    pass
                 messagebox.showerror(
                     T["extract_failed"], T["extract_failed_detail"], parent=self.root
                 )
@@ -736,8 +843,17 @@ class App:
         下載執行緒只透過 self.root.after 更新 UI，絕不直接碰 widget。
         用 wait_window 同步等待對話框關閉（呼叫端本身在主執行緒，安全）。
         """
-        if os.path.exists(IMAGEMAGICK_ARCHIVE_PATH):
+        # 修正點：原本只要壓縮檔「存在」就直接視為下載完成並跳過下載，
+        # 若上次下載中斷造成檔案不完整/損毀，會在後續解壓縮時才爆炸，
+        # 且使用者完全看不出真正原因。這裡改為實際驗證壓縮檔可否開啟，
+        # 驗證失敗就刪除重下。
+        if is_valid_7z(IMAGEMAGICK_ARCHIVE_PATH):
             return True
+        if os.path.exists(IMAGEMAGICK_ARCHIVE_PATH):
+            try:
+                os.remove(IMAGEMAGICK_ARCHIVE_PATH)
+            except Exception:
+                pass
 
         win = tk.Toplevel(self.root)
         win.title(T["download_title"])

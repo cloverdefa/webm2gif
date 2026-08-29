@@ -25,13 +25,16 @@ permissions:
 jobs:
   release:
     if: >
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.base.ref == 'main' &&
       (
-        github.event.pull_request.head.ref == 'test' ||
-        github.event.pull_request.head.ref == 'dev'
+        github.event_name == 'workflow_dispatch'
+      ) ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.merged == true &&
+        github.event.pull_request.base.ref == 'main' &&
+        github.event.pull_request.head.ref == 'test'
       )
-      
+
     runs-on: windows-latest
 
     steps:
@@ -40,7 +43,7 @@ jobs:
       # ============================================================
 
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -169,15 +172,6 @@ jobs:
 
               # ------------------------------------------------------
               # MAJOR
-              #
-              # Examples:
-              #   feat!: ...
-              #   fix!: ...
-              #   refactor!: ...
-              #   feat(scope)!: ...
-              #
-              # Also:
-              #   BREAKING CHANGE:
               # ------------------------------------------------------
 
               if (
@@ -190,10 +184,6 @@ jobs:
 
               # ------------------------------------------------------
               # MINOR
-              #
-              # Examples:
-              #   feat: ...
-              #   feat(scope): ...
               # ------------------------------------------------------
 
               if ($commit -match '^feat(\([^)]*\))?:') {
@@ -207,10 +197,6 @@ jobs:
 
               # ------------------------------------------------------
               # PATCH
-              #
-              # Examples:
-              #   fix: ...
-              #   fix(scope): ...
               # ------------------------------------------------------
 
               if ($commit -match '^fix(\([^)]*\))?:') {

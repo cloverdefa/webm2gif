@@ -158,16 +158,13 @@ jobs:
 
             foreach ($commit in $commits) {
 
-              $commit = $commit.Trim()
+              $commit = $commit.Trim() -replace '^[\x1E]+', ''
 
               Write-Host "----------------------------------------"
               Write-Host "Commit:"
               Write-Host $commit
 
-              # ------------------------------------------------------
               # MAJOR
-              # ------------------------------------------------------
-
               if (
                 $commit -match '^[a-zA-Z0-9_-]+(\([^)]*\))?!:' -or
                 $commit -match 'BREAKING CHANGE:' -or
@@ -177,29 +174,19 @@ jobs:
                 continue
               }
 
-              # ------------------------------------------------------
               # MINOR
-              # ------------------------------------------------------
-
               if ($commit -match '^(feat|新增|功能)(\([^)]*\))?[:：]') {
-
                 if ($releaseType -ne "major") {
                   $releaseType = "minor"
                 }
-
                 continue
               }
 
-              # ------------------------------------------------------
               # PATCH
-              # ------------------------------------------------------
-
               if ($commit -match '^(fix|chore|修正|修復)(\([^)]*\))?[:：]') {
-
                 if ($releaseType -eq "none") {
                   $releaseType = "patch"
                 }
-
                 continue
               }
             }

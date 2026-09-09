@@ -19,21 +19,45 @@ on:
           - major
         default: patch
 
+
+# ====================================================================
+# Permissions
+# ====================================================================
+
 permissions:
   contents: write
 
+
+# ====================================================================
+# Concurrency
+#
+# 避免兩個 Release Workflow 同時計算出相同版本號。
+# ====================================================================
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+
 jobs:
+
   # ==================================================================
   # Job 1: 判斷版本號
   # ==================================================================
+
   version:
     name: Determine Version
 
-    # ==============================================================
+    # ================================================================
     # 僅允許：
-    # 1. 手動觸發 (workflow_dispatch)
-    # 2. PR 被成功合併，且來源分支為 'test'、目標分支為 'main'
-    # ==============================================================
+    #
+    # 1. 手動觸發 workflow_dispatch
+    #
+    # 2. PR 被成功合併
+    #    且來源分支為 test
+    #    且目標分支為 main
+    # ================================================================
+
     if: >
       github.event_name == 'workflow_dispatch' ||
       (
@@ -49,202 +73,437 @@ jobs:
       release_type: ${{ steps.version.outputs.release_type }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      target_sha: ${{ steps.version.outputs.target_sha }}
+
 
     steps:
-      # ============================================================
-      # Checkout main
-      # ============================================================
 
-      - name: Checkout main
+      # ==============================================================
+      # Checkout
+      #
+      # workflow_dispatch:
+      #   使用 main
+      #
+      # pull_request:
+      #   使用 PR merge commit
+      #
+      # 不直接依賴 checkout action 預設的 github.sha，
+      # 確保後續版本分析使用正確的 Commit。
+      # ==============================================================
+
+      - name: Checkout target commit
         uses: actions/checkout@v7
         with:
-          ref: main
+          ref: >-
+            ${{
+              github.event_name == 'workflow_dispatch'
+              && 'main'
+              || github.event.pull_request.merge_commit_sha
+            }}
           fetch-depth: 0
 
-      # ============================================================
-      # Get next version
-      # ============================================================
+
+      # ==============================================================
+      # Determine version
+      # ==============================================================
 
       - name: Get next version
         id: version
         shell: pwsh
         run: |
+
           $ErrorActionPreference = "Stop"
+
+
+          # ==========================================================
+          # Fetch tags
+          # ==========================================================
 
           git fetch --tags --force
 
-          # ----------------------------------------------------------
-          # Find latest semantic version tag
+
+          # ==========================================================
+          # Function: Get latest semantic version tag
           #
-          # Supported:
+          # 僅接受：
+          #
           #   v1.0.0
           #   v1.1.0
           #   v2.0.0
-          # ----------------------------------------------------------
+          #
+          # 不接受：
+          #
+          #   v1.0
+          #   v1.0.0-beta
+          #   release-1.0.0
+          # ==========================================================
 
-          $latestTag = @(
-            git tag --list "v*.*.*" |
-            Where-Object {
-              $_ -match '^v[0-9]+\.[0-9]+\.[0-9]+$'
-            } |
-            Sort-Object {
-              $parts = $_.Substring(1).Split('.')
+          function Get-LatestTag {
 
-              [version]::new(
-                [int]$parts[0],
-                [int]$parts[1],
-                [int]$parts[2]
-              )
+            $tags = @(
+              git tag --list "v*.*.*" |
+                Where-Object {
+                  $_ -match '^v[0-9]+\.[0-9]+\.[0-9]+$'
+                } |
+                Sort-Object {
+
+                  $parts = $_.Substring(1).Split('.')
+
+                  [version]::new(
+                    [int]$parts[0],
+                    [int]$parts[1],
+                    [int]$parts[2]
+                  )
+                }
+            )
+
+            if ($tags.Count -eq 0) {
+              return $null
             }
-          ) |
-          Select-Object -Last 1
 
-          Write-Host "Latest tag: $latestTag"
+            return $tags[-1]
+          }
 
-          # ----------------------------------------------------------
-          # Determine release type
+
+          # ==========================================================
+          # Function: Analyze ONE commit
           #
-          # workflow_dispatch:
-          #   Use manually selected release type.
+          # 一個 Commit = 一個分析單位
           #
-          # pull_request:
-          #   Analyze commits since latest release.
+          # Subject 與 Body 分開取得：
+          #
+          #   Subject
+          #     git show -s --format='%s'
+          #
+          #   Body
+          #     git show -s --format='%b'
+          #
+          # BREAKING CHANGE:
+          #   僅從 Body 判斷。
+          # ==========================================================
+
+          function Get-CommitBump(
+            [string]$sha
+          ) {
+
+            $subject = git show `
+              -s `
+              --format='%s' `
+              $sha
+
+            $body = git show `
+              -s `
+              --format='%b' `
+              $sha
+
+
+            Write-Host ""
+            Write-Host "----------------------------------------"
+            Write-Host "Commit : $sha"
+            Write-Host "Subject: $subject"
+
+            if ($body) {
+              Write-Host "Body:"
+              Write-Host $body
+            }
+            else {
+              Write-Host "Body   : <empty>"
+            }
+
+
+            # --------------------------------------------------------
+            # MAJOR
+            #
+            # Conventional Commit:
+            #
+            #   feat!:
+            #   fix!:
+            #   chore!:
+            #
+            #   feat(scope)!:
+            #   fix(scope)!:
+            #
+            # Body:
+            #
+            #   BREAKING CHANGE:
+            #
+            # 中文：
+            #
+            #   重大變更:
+            #   破壞性變更:
+            # --------------------------------------------------------
+
+            if (
+              $subject -match '^[a-zA-Z0-9_-]+(\([^)]*\))?!:' -or
+              $body -match '(?m)^BREAKING CHANGE:' -or
+              $subject -match '^[^\r\n]*(重大變更|破壞性變更)[:：]' -or
+              $body -match '(?m)^[^\r\n]*(重大變更|破壞性變更)[:：]'
+            ) {
+
+              Write-Host "Detected bump: MAJOR"
+
+              return "major"
+            }
+
+
+            # --------------------------------------------------------
+            # MINOR
+            #
+            #   feat:
+            #   feat(scope):
+            #
+            #   新增:
+            #   功能:
+            #   新增(scope):
+            #   功能(scope):
+            # --------------------------------------------------------
+
+            if (
+              $subject -match '^(feat)(\([^)]*\))?[:：]' -or
+              $subject -match '^(新增|功能)(\([^)]*\))?[:：]'
+            ) {
+
+              Write-Host "Detected bump: MINOR"
+
+              return "minor"
+            }
+
+
+            # --------------------------------------------------------
+            # PATCH
+            #
+            #   fix:
+            #   fix(scope):
+            #
+            #   chore:
+            #   chore(scope):
+            #
+            #   修正:
+            #   修復:
+            # --------------------------------------------------------
+
+            if (
+              $subject -match '^(fix|chore)(\([^)]*\))?[:：]' -or
+              $subject -match '^(修正|修復)(\([^)]*\))?[:：]'
+            ) {
+
+              Write-Host "Detected bump: PATCH"
+
+              return "patch"
+            }
+
+
+            # --------------------------------------------------------
+            # NONE
+            #
+            # 例如：
+            #
+            #   docs:
+            #   refactor:
+            #   style:
+            #   test:
+            #   ci:
+            #   build:
+            #   perf:
+            #
+            # 或其他不符合 Release 規則的 Commit。
+            # --------------------------------------------------------
+
+            Write-Host "Detected bump: NONE"
+
+            return "none"
+          }
+
+
+          # ==========================================================
+          # Function: Analyze all commits
           #
           # Priority:
+          #
           #   major > minor > patch > none
-          # ----------------------------------------------------------
+          #
+          # 使用 git rev-list：
+          #
+          #   Commit A
+          #   Commit B
+          #   Commit C
+          #
+          # 每個 Commit 個別交給 Get-CommitBump 分析。
+          # ==========================================================
 
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-
-            $releaseType = "${{ inputs.release_type }}"
-
-            Write-Host "Trigger: workflow_dispatch"
-            Write-Host "Release type: $releaseType"
-
-          }
-          else {
+          function Get-ReleaseBump(
+            [string]$commitRange
+          ) {
 
             $releaseType = "none"
 
-            Write-Host "Trigger: pull_request"
-            Write-Host "Analyzing commits since latest release..."
 
-            # --------------------------------------------------------
-            # Get commits
-            #
-            # Use ASCII Record Separator (0x1E) to separate commits.
-            # This prevents commit body lines from being treated as
-            # independent commits.
-            # --------------------------------------------------------
+            Write-Host ""
+            Write-Host "========================================"
+            Write-Host "Commit range: $commitRange"
+            Write-Host "========================================"
 
-            if ($latestTag) {
 
-              $log = git log `
-                "$latestTag..HEAD" `
-                --pretty=format:"%x1e%s%n%b"
+            $commits = @(
+              git rev-list $commitRange
+            )
 
-            }
-            else {
 
-              $log = git log `
-                --pretty=format:"%x1e%s%n%b"
+            if ($commits.Count -eq 0) {
 
+              Write-Host "No commits found."
+
+              return "none"
             }
 
-            $commits = $log -split "`x1e" |
-              Where-Object {
-                $_.Trim() -ne ""
-              }
 
-            foreach ($commit in $commits) {
+            foreach ($sha in $commits) {
 
-              $commit = $commit.Trim() -replace '^[\x1E]+', ''
-
-              Write-Host "----------------------------------------"
-              Write-Host "Commit:"
-              Write-Host $commit
-
-              # MAJOR
-              if (
-                $commit -match '^[a-zA-Z0-9_-]+(\([^)]*\))?!:' -or
-                $commit -match 'BREAKING CHANGE:' -or
-                $commit -match '(重大變更|破壞性變更)[:：]'
-              ) {
-                $releaseType = "major"
+              if ([string]::IsNullOrWhiteSpace($sha)) {
                 continue
               }
 
-              # MINOR
-              if ($commit -match '^(feat|新增|功能)(\([^)]*\))?[:：]') {
-                if ($releaseType -ne "major") {
-                  $releaseType = "minor"
+
+              $commitBump = Get-CommitBump $sha
+
+
+              switch ($commitBump) {
+
+                # ----------------------------------------------------
+                # MAJOR
+                # ----------------------------------------------------
+
+                "major" {
+
+                  $releaseType = "major"
+
                 }
-                continue
+
+
+                # ----------------------------------------------------
+                # MINOR
+                # ----------------------------------------------------
+
+                "minor" {
+
+                  if ($releaseType -ne "major") {
+                    $releaseType = "minor"
+                  }
+
+                }
+
+
+                # ----------------------------------------------------
+                # PATCH
+                # ----------------------------------------------------
+
+                "patch" {
+
+                  if ($releaseType -eq "none") {
+                    $releaseType = "patch"
+                  }
+
+                }
+
+
+                # ----------------------------------------------------
+                # NONE
+                # ----------------------------------------------------
+
+                "none" {
+                  # 不需要升版
+                }
+
+
+                # ----------------------------------------------------
+                # Invalid
+                # ----------------------------------------------------
+
+                default {
+
+                  throw "Unknown bump type: $commitBump"
+
+                }
               }
 
-              # PATCH
-              if ($commit -match '^(fix|chore|修正|修復)(\([^)]*\))?[:：]') {
-                if ($releaseType -eq "none") {
-                  $releaseType = "patch"
-                }
-                continue
+
+              # ------------------------------------------------------
+              # 已經達到 MAJOR
+              #
+              # MAJOR 是最高優先級，因此不需要繼續分析。
+              # ------------------------------------------------------
+
+              if ($releaseType -eq "major") {
+
+                Write-Host ""
+                Write-Host "Highest release level reached: MAJOR"
+
+                break
               }
             }
 
-            Write-Host "----------------------------------------"
+
+            Write-Host ""
+            Write-Host "========================================"
             Write-Host "Detected release type: $releaseType"
+            Write-Host "========================================"
 
-            # --------------------------------------------------------
-            # No release required
-            # --------------------------------------------------------
 
-            if ($releaseType -eq "none") {
-
-              Write-Host "No release required."
-
-              "should_release=false" |
-                Out-File `
-                  -FilePath $env:GITHUB_OUTPUT `
-                  -Append `
-                  -Encoding utf8
-
-              exit 0
-            }
+            return $releaseType
           }
 
-          # ----------------------------------------------------------
-          # Calculate next version
-          # ----------------------------------------------------------
 
-          if (-not $latestTag) {
+          # ==========================================================
+          # Function: Calculate next version
+          #
+          # 沒有既有 Tag：
+          #
+          #   patch -> v0.1.1
+          #   minor -> v0.2.0
+          #   major -> v1.0.0
+          #
+          # 已有 Tag：
+          #
+          #   patch -> patch + 1
+          #   minor -> minor + 1, patch = 0
+          #   major -> major + 1, minor = 0, patch = 0
+          # ==========================================================
 
-            switch ($releaseType) {
+          function Get-NextVersion(
+            [string]$latestTag,
+            [string]$releaseType
+          ) {
 
-              "patch" {
-                $major = 0
-                $minor = 1
-                $patch = 1
-              }
+            # --------------------------------------------------------
+            # Initial release
+            # --------------------------------------------------------
 
-              "minor" {
-                $major = 0
-                $minor = 2
-                $patch = 0
-              }
+            if (-not $latestTag) {
 
-              "major" {
-                $major = 1
-                $minor = 0
-                $patch = 0
-              }
+              switch ($releaseType) {
 
-              default {
-                throw "Invalid release type: $releaseType"
+                "patch" {
+                  return "v0.1.1"
+                }
+
+                "minor" {
+                  return "v0.2.0"
+                }
+
+                "major" {
+                  return "v1.0.0"
+                }
+
+                default {
+                  throw "Invalid release type: $releaseType"
+                }
               }
             }
 
-          }
-          else {
+
+            # --------------------------------------------------------
+            # Existing release
+            # --------------------------------------------------------
 
             $parts = $latestTag.Substring(1).Split('.')
 
@@ -252,107 +511,297 @@ jobs:
             $minor = [int]$parts[1]
             $patch = [int]$parts[2]
 
+
             switch ($releaseType) {
 
               "patch" {
+
                 $patch++
+
               }
 
               "minor" {
+
                 $minor++
                 $patch = 0
+
               }
 
               "major" {
+
                 $major++
                 $minor = 0
                 $patch = 0
+
               }
 
               default {
+
                 throw "Invalid release type: $releaseType"
+
               }
+            }
+
+
+            return "v$major.$minor.$patch"
+          }
+
+
+          # ==========================================================
+          # Determine target commit
+          #
+          # workflow_dispatch:
+          #   main HEAD
+          #
+          # pull_request:
+          #   PR merge commit
+          # ==========================================================
+
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+
+            $targetSha = git rev-parse main
+
+            Write-Host "Trigger       : workflow_dispatch"
+            Write-Host "Target branch : main"
+
+          }
+          else {
+
+            $targetSha = "${{ github.event.pull_request.merge_commit_sha }}"
+
+            Write-Host "Trigger       : pull_request"
+            Write-Host "Source branch : ${{ github.event.pull_request.head.ref }}"
+            Write-Host "Target branch : ${{ github.event.pull_request.base.ref }}"
+          }
+
+
+          # ==========================================================
+          # Validate target SHA
+          # ==========================================================
+
+          if ([string]::IsNullOrWhiteSpace($targetSha)) {
+
+            throw "Target commit SHA is empty."
+
+          }
+
+
+          Write-Host "Target SHA    : $targetSha"
+
+
+          # ==========================================================
+          # Find latest release tag
+          # ==========================================================
+
+          $latestTag = Get-LatestTag
+
+
+          if ($latestTag) {
+
+            Write-Host "Latest tag    : $latestTag"
+
+          }
+          else {
+
+            Write-Host "Latest tag    : none"
+
+          }
+
+
+          # ==========================================================
+          # Determine release type
+          # ==========================================================
+
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+
+            # --------------------------------------------------------
+            # Manual release
+            #
+            # 完全使用手動選擇的版本類型。
+            # --------------------------------------------------------
+
+            $releaseType = "${{ inputs.release_type }}"
+
+            Write-Host ""
+            Write-Host "Manual release type: $releaseType"
+
+          }
+          else {
+
+            # --------------------------------------------------------
+            # Automatic release
+            #
+            # 分析最新 Release 之後的所有 Commit。
+            # --------------------------------------------------------
+
+            if ($latestTag) {
+
+              $commitRange = "$latestTag..$targetSha"
+
+            }
+            else {
+
+              $commitRange = $targetSha
+
+            }
+
+
+            $releaseType = Get-ReleaseBump $commitRange
+
+
+            # --------------------------------------------------------
+            # No release required
+            # --------------------------------------------------------
+
+            if ($releaseType -eq "none") {
+
+              Write-Host ""
+              Write-Host "No release required."
+
+
+              "should_release=false" |
+                Out-File `
+                  -FilePath $env:GITHUB_OUTPUT `
+                  -Append `
+                  -Encoding utf8
+
+
+              exit 0
             }
           }
 
-          $version = "$major.$minor.$patch"
-          $tag = "v$version"
 
-          # ----------------------------------------------------------
-          # Prevent duplicate tag
-          # ----------------------------------------------------------
+          # ==========================================================
+          # Calculate next version
+          # ==========================================================
 
-          if (git tag --list $tag) {
-            throw "Tag $tag already exists."
+          $tag = Get-NextVersion `
+            $latestTag `
+            $releaseType
+
+          $version = $tag.Substring(1)
+
+
+          # ==========================================================
+          # Validate generated tag
+          # ==========================================================
+
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+
+            throw "Invalid generated tag: $tag"
+
           }
 
-          Write-Host "Release type: $releaseType"
-          Write-Host "Next version: $version"
-          Write-Host "Release tag: $tag"
 
-          # ----------------------------------------------------------
+          # ==========================================================
+          # Prevent duplicate local tag
+          # ==========================================================
+
+          $localTag = git tag --list $tag
+
+
+          if ($localTag) {
+
+            throw "Tag $tag already exists locally."
+
+          }
+
+
+          # ==========================================================
+          # Prevent duplicate remote tag
+          # ==========================================================
+
+          $remoteTag = git ls-remote `
+            --tags `
+            origin `
+            "refs/tags/$tag"
+
+
+          if ($remoteTag) {
+
+            throw "Tag $tag already exists on origin."
+
+          }
+
+
+          # ==========================================================
+          # Release summary
+          # ==========================================================
+
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "Release summary"
+          Write-Host "========================================"
+          Write-Host "Release type : $releaseType"
+          Write-Host "Version      : $version"
+          Write-Host "Tag          : $tag"
+          Write-Host "Target SHA   : $targetSha"
+          Write-Host "========================================"
+
+
+          # ==========================================================
           # GitHub Actions outputs
-          # ----------------------------------------------------------
+          # ==========================================================
 
-          "should_release=true" |
+          @(
+            "should_release=true"
+            "release_type=$releaseType"
+            "version=$version"
+            "tag=$tag"
+            "target_sha=$targetSha"
+          ) |
             Out-File `
               -FilePath $env:GITHUB_OUTPUT `
               -Append `
               -Encoding utf8
 
-          "release_type=$releaseType" |
-            Out-File `
-              -FilePath $env:GITHUB_OUTPUT `
-              -Append `
-              -Encoding utf8
-
-          "version=$version" |
-            Out-File `
-              -FilePath $env:GITHUB_OUTPUT `
-              -Append `
-              -Encoding utf8
-
-          "tag=$tag" |
-            Out-File `
-              -FilePath $env:GITHUB_OUTPUT `
-              -Append `
-              -Encoding utf8
 
   # ==================================================================
   # Job 2: 建置執行檔
   # ==================================================================
+
   build:
     name: Build Executable
 
-    needs: version
+    needs:
+      - version
 
     if: needs.version.outputs.should_release == 'true'
 
     runs-on: windows-latest
 
-    steps:
-      # ============================================================
-      # Checkout main
-      # ============================================================
 
-      - name: Checkout main
+    steps:
+
+      # ==============================================================
+      # Checkout exact target commit
+      #
+      # 不再 checkout main。
+      #
+      # 這裡與 version Job 使用完全相同的 target_sha，
+      # 確保「分析的程式碼」與「實際 Build 的程式碼」一致。
+      # ==============================================================
+
+      - name: Checkout target commit
         uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ needs.version.outputs.target_sha }}
           fetch-depth: 0
 
-      # ============================================================
+
+      # ==============================================================
       # Setup Python
-      # ============================================================
+      # ==============================================================
 
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
-      # ============================================================
+
+      # ==============================================================
       # Install dependencies
-      # ============================================================
+      # ==============================================================
 
       - name: Install dependencies
         shell: pwsh
@@ -360,37 +809,46 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pyinstaller py7zr
 
-      # ============================================================
+
+      # ==============================================================
       # Build executable
-      # ============================================================
+      # ==============================================================
 
       - name: Build executable
         shell: pwsh
         run: |
           pyinstaller webm2gif.spec
 
-      # ============================================================
+
+      # ==============================================================
       # Verify executable
-      # ============================================================
+      # ==============================================================
 
       - name: Verify executable
         shell: pwsh
         run: |
+
           $exe = "dist\webm2gif.exe"
 
+
           if (-not (Test-Path $exe)) {
+
             throw "Build failed: $exe not found"
+
           }
 
+
           $size = (Get-Item $exe).Length / 1MB
+
 
           Write-Host "Build succeeded."
           Write-Host "Executable: $exe"
           Write-Host ("Size: {0:N2} MB" -f $size)
 
-      # ============================================================
+
+      # ==============================================================
       # Upload executable artifact
-      # ============================================================
+      # ==============================================================
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v7
@@ -399,9 +857,11 @@ jobs:
           path: dist/webm2gif.exe
           retention-days: 1
 
+
   # ==================================================================
   # Job 3: 建立 GitHub Release
   # ==================================================================
+
   release:
     name: Create Release
 
@@ -413,10 +873,12 @@ jobs:
 
     runs-on: ubuntu-latest
 
+
     steps:
-      # ============================================================
+
+      # ==============================================================
       # Download executable artifact
-      # ============================================================
+      # ==============================================================
 
       - name: Download executable artifact
         uses: actions/download-artifact@v8
@@ -424,15 +886,19 @@ jobs:
           name: webm2gif
           path: dist
 
-      # ============================================================
+
+      # ==============================================================
       # Create GitHub Release
-      # ============================================================
+      #
+      # target_commitish 使用 version Job 決定的 target_sha，
+      # 不再使用 mutable main。
+      # ==============================================================
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
-          target_commitish: main
+          target_commitish: ${{ needs.version.outputs.target_sha }}
           name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true
           files: |

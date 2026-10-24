@@ -274,16 +274,17 @@ jobs:
             #
             #   fix:
             #   fix(scope):
-            #
             #   chore:
             #   chore(scope):
+            #   build:
+            #   build(scope):
             #
             #   修正:
             #   修復:
             # --------------------------------------------------------
 
             if (
-              $subject -match '^(fix|chore)(\([^)]*\))?[:：]' -or
+              $subject -match '^(fix|chore|build)(\([^)]*\))?[:：]' -or
               $subject -match '^(修正|修復)(\([^)]*\))?[:：]'
             ) {
 

@@ -10,6 +10,7 @@ id_rsa
 main.py
 
 # 忽略資料夾
+/target/
 dist/
 build/
 .venv/

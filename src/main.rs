@@ -8,6 +8,7 @@ use std::{
 };
 use walkdir::WalkDir;
 
+#[cfg(windows)]
 const EXTRACT_DIR: &str = "ImageMagick-7.1.2-29-portable-Q16-x64";
 
 #[derive(Clone)]
@@ -55,7 +56,7 @@ impl Default for App {
 }
 
 impl App {
-    fn tr(&self, zh: &str, en: &str) -> &str {
+    fn tr(&self, zh: &'static str, en: &'static str) -> &'static str {
         if self.zh { zh } else { en }
     }
     fn scan(folder: &Path) -> Vec<PathBuf> {
@@ -190,10 +191,10 @@ impl App {
 
 fn which(name: &str) -> Result<PathBuf, ()> {
     let key = if cfg!(windows) { "PATH" } else { "PATH" };
-    for p in std::env::var_os(key)
-        .into_iter()
-        .flat_map(|v| std::env::split_paths(&v))
-    {
+    let paths: Vec<PathBuf> = std::env::var_os(key)
+        .map(|value| std::env::split_paths(&value).collect())
+        .unwrap_or_default();
+    for p in paths {
         let candidate = p.join(name);
         if candidate.is_file() {
             return Ok(candidate);
@@ -262,7 +263,8 @@ impl eframe::App for App {
             });
             ui.add_space(8.);
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.resize, self.tr("縮放高度", "Resize height"));
+                let resize_label = self.tr("縮放高度", "Resize height");
+                ui.checkbox(&mut self.resize, resize_label);
                 ui.add_enabled(
                     self.resize,
                     egui::TextEdit::singleline(&mut self.height).desired_width(65.),

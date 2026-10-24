@@ -210,6 +210,39 @@ fn which(name: &str) -> Result<PathBuf, ()> {
     Err(())
 }
 
+fn configure_fonts(ctx: &egui::Context) {
+    let candidates: &[&str] = if cfg!(target_os = "macos") {
+        &[
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/System/Library/Fonts/PingFang.ttc",
+        ]
+    } else if cfg!(windows) {
+        &[r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simhei.ttf"]
+    } else {
+        &[
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        ]
+    };
+
+    let Some(bytes) = candidates.iter().find_map(|path| std::fs::read(path).ok()) else {
+        return;
+    };
+    let mut fonts = egui::FontDefinitions::default();
+    fonts
+        .font_data
+        .insert("cjk".into(), egui::FontData::from_owned(bytes).into());
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .insert(0, "cjk".into());
+    }
+    ctx.set_fonts(fonts);
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut finished = false;
@@ -340,6 +373,9 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Webm2Gif",
         eframe::NativeOptions::default(),
-        Box::new(|_| Ok(Box::<App>::default())),
+        Box::new(|cc| {
+            configure_fonts(&cc.egui_ctx);
+            Ok(Box::<App>::default())
+        }),
     )
 }

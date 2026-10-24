@@ -3,7 +3,10 @@ use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
     process::Command,
-    sync::{mpsc::{self, Receiver}, OnceLock},
+    sync::{
+        OnceLock,
+        mpsc::{self, Receiver},
+    },
     thread,
 };
 use walkdir::WalkDir;
@@ -78,24 +81,33 @@ impl App {
 
     fn embedded_tools_dir() -> Option<PathBuf> {
         static TOOLS: OnceLock<Option<PathBuf>> = OnceLock::new();
-        TOOLS.get_or_init(|| {
-            #[cfg(embedded_tools)]
-            {
-                let root = std::env::temp_dir().join(format!("webm2gif-tools-{}", env!("CARGO_PKG_VERSION")));
-                let magick = root.join("ImageMagick/magick.exe");
-                let ffmpeg = root.join("ffmpeg/ffmpeg.exe");
-                if magick.is_file() && ffmpeg.is_file() {
-                    return Some(root);
+        TOOLS
+            .get_or_init(|| {
+                #[cfg(embedded_tools)]
+                {
+                    let root = std::env::temp_dir()
+                        .join(format!("webm2gif-tools-{}", env!("CARGO_PKG_VERSION")));
+                    let magick = root.join("ImageMagick/magick.exe");
+                    let ffmpeg = root.join("ffmpeg/ffmpeg.exe");
+                    if magick.is_file() && ffmpeg.is_file() {
+                        return Some(root);
+                    }
+                    if std::fs::create_dir_all(&root).is_err() {
+                        return None;
+                    }
+                    Self::extract_embedded_tools(&root)?;
+                    if magick.is_file() && ffmpeg.is_file() {
+                        Some(root)
+                    } else {
+                        None
+                    }
                 }
-                if std::fs::create_dir_all(&root).is_err() {
-                    return None;
+                #[cfg(not(embedded_tools))]
+                {
+                    None
                 }
-                Self::extract_embedded_tools(&root)?;
-                if magick.is_file() && ffmpeg.is_file() { Some(root) } else { None }
-            }
-            #[cfg(not(embedded_tools))]
-            { None }
-        }).clone()
+            })
+            .clone()
     }
 
     fn tr(&self, zh: &'static str, en: &'static str) -> &'static str {
@@ -114,7 +126,7 @@ impl App {
                         .unwrap_or("")
                         .to_lowercase()
                         .as_str(),
-                    "webm" | "webp" | "mp4"
+                    "webm" | "webp" | "mp4" | "mov"
                 )
             })
             .map(|e| e.path().to_path_buf())
@@ -123,7 +135,9 @@ impl App {
     fn magick() -> Option<PathBuf> {
         if let Some(root) = Self::embedded_tools_dir() {
             let path = root.join("ImageMagick/magick.exe");
-            if path.is_file() { return Some(path); }
+            if path.is_file() {
+                return Some(path);
+            }
         }
         if let Some(exe_dir) = std::env::current_exe()
             .ok()?
@@ -161,7 +175,9 @@ impl App {
     fn ffmpeg() -> Option<PathBuf> {
         if let Some(root) = Self::embedded_tools_dir() {
             let path = root.join("ffmpeg/ffmpeg.exe");
-            if path.is_file() { return Some(path); }
+            if path.is_file() {
+                return Some(path);
+            }
         }
         if let Some(exe_dir) = std::env::current_exe().ok()?.parent() {
             let bundled = exe_dir.join("tools/ffmpeg").join(if cfg!(windows) {
@@ -201,7 +217,9 @@ impl App {
             files.retain(|path| {
                 path.extension()
                     .and_then(|x| x.to_str())
-                    .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "webm" | "mp4"))
+                    .is_some_and(|ext| {
+                        matches!(ext.to_ascii_lowercase().as_str(), "webm" | "mp4" | "mov")
+                    })
             });
         }
         if files.is_empty() {
@@ -209,12 +227,12 @@ impl App {
                 text: self
                     .tr(
                         if self.clip_mode {
-                            "未找到 WebM 或 MP4 影片。"
+                            "未找到 WebM、MP4 或 MOV 影片。"
                         } else {
                             "未找到可轉換的檔案。"
                         },
                         if self.clip_mode {
-                            "No WebM or MP4 videos found."
+                            "No WebM, MP4, or MOV videos found."
                         } else {
                             "No convertible files found."
                         },
@@ -239,7 +257,7 @@ impl App {
             && files.iter().any(|path| {
                 path.extension()
                     .and_then(|x| x.to_str())
-                    .is_some_and(|ext| !ext.eq_ignore_ascii_case("mp4"))
+                    .is_some_and(|ext| !matches!(ext.to_ascii_lowercase().as_str(), "mp4" | "mov"))
             });
         let magick = if needs_magick {
             let Some(path) = Self::magick() else {
@@ -262,15 +280,15 @@ impl App {
             || files.iter().any(|path| {
                 path.extension()
                     .and_then(|x| x.to_str())
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
+                    .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "mp4" | "mov"))
             });
         let ffmpeg = if needs_ffmpeg {
             let Some(path) = Self::ffmpeg() else {
                 self.logs.push(Entry {
                     text: self
                         .tr(
-                            "MP4 與影片片段轉換需要 FFmpeg，請先安裝並加入 PATH。",
-                            "MP4 and clip conversion require FFmpeg. Install it and add it to PATH.",
+                            "MP4、MOV 與影片片段轉換需要 FFmpeg，請先安裝並加入 PATH。",
+                            "MP4, MOV, and clip conversion require FFmpeg. Install it and add it to PATH.",
                         )
                         .into(),
                     kind: "err",
@@ -314,11 +332,11 @@ impl App {
                 let output = dir
                     .join(input.file_stem().unwrap_or_default())
                     .with_extension("gif");
-                let is_mp4 = input
+                let is_ffmpeg_video = input
                     .extension()
                     .and_then(|x| x.to_str())
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"));
-                let result = if clip_range.is_some() || is_mp4 {
+                    .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "mp4" | "mov"));
+                let result = if clip_range.is_some() || is_ffmpeg_video {
                     let height_filter = height
                         .map(|h| format!("scale=-1:{h}:flags=lanczos"))
                         .unwrap_or_else(|| "scale=iw:ih".into());
@@ -477,7 +495,7 @@ impl eframe::App for App {
                     if !narrow {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             egui::Frame::new().fill(egui::Color32::from_rgb(225, 245, 239)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(11, 6)).show(ui, |ui| {
-                                ui.label(egui::RichText::new("WEBM / MP4 / WEBP  →  GIF").size(11.).strong().color(egui::Color32::from_rgb(0, 105, 82)));
+                                ui.label(egui::RichText::new("WEBM / WEBP / MP4 / MOV  →  GIF").size(10.).strong().color(egui::Color32::from_rgb(0, 105, 82)));
                             });
                         });
                     }
@@ -558,7 +576,7 @@ impl eframe::App for App {
                             ui.label(self.tr("結束（秒）", "End (sec)"));
                             ui.add(egui::TextEdit::singleline(&mut self.clip_end).desired_width(72.));
                         });
-                        ui.label(egui::RichText::new(self.tr("片段模式支援 WebM 與 MP4，並需要 FFmpeg。", "Clip mode supports WebM and MP4 and requires FFmpeg.")).size(11.).color(egui::Color32::from_rgb(125, 135, 147)));
+                        ui.label(egui::RichText::new(self.tr("片段模式支援 WebM、MP4 與 MOV，並需要 FFmpeg。", "Clip mode supports WebM, MP4, and MOV and requires FFmpeg.")).size(11.).color(egui::Color32::from_rgb(125, 135, 147)));
                     }
                 });
 
@@ -579,7 +597,10 @@ impl eframe::App for App {
                             #[cfg(all(unix, not(target_os = "macos")))] let _ = Command::new("xdg-open").arg(p).spawn();
                         }
                     }
-                    if ui.button(egui::RichText::new(self.tr("清除紀錄", "Clear log")).color(egui::Color32::from_rgb(105, 117, 132))).clicked() {
+                    let clear = egui::Button::new(egui::RichText::new(self.tr("清除紀錄", "Clear log")).strong().color(egui::Color32::from_rgb(156, 48, 48)))
+                        .fill(egui::Color32::from_rgb(255, 235, 235))
+                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(239, 185, 185)));
+                    if ui.add(clear).clicked() {
                         self.logs.clear(); self.outputs.clear(); self.done = 0; self.status = self.tr("就緒", "Ready").into();
                     }
                 };
@@ -624,8 +645,8 @@ fn main() -> eframe::Result {
         "Webm2Gif",
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
-                .with_inner_size([640., 760.])
-                .with_min_inner_size([520., 620.])
+                .with_inner_size([640., 620.])
+                .with_min_inner_size([520., 580.])
                 .with_icon(
                     eframe::icon_data::from_png_bytes(include_bytes!("../assets/app-icon.png"))
                         .expect("invalid app icon PNG"),

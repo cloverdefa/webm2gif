@@ -833,24 +833,11 @@ jobs:
       - name: Build executable with embedded media tools
         run: cargo build --release
 
-      - name: Package single executable
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $package = Join-Path $PWD "target\release\package"
-          $null = New-Item -ItemType Directory -Force -Path $package
-          Copy-Item "target\release\webm2gif.exe" $package
-
-          $zip = Join-Path $PWD "target\release\webm2gif-windows-x64.zip"
-          Compress-Archive -Path (Join-Path $package "*") -DestinationPath $zip -CompressionLevel Optimal -Force
-          $size = (Get-Item $zip).Length / 1MB
-          Write-Host "Single-executable package created: $zip ($('{0:N2}' -f $size) MB)"
-
       - name: Upload executable artifact
         uses: actions/upload-artifact@v7
         with:
           name: webm2gif
-          path: target/release/webm2gif-windows-x64.zip
+          path: target/release/webm2gif.exe
           retention-days: 1
 
   # ==================================================================
@@ -897,4 +884,4 @@ jobs:
           name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true
           files: |
-            dist/webm2gif-windows-x64.zip
+            dist/webm2gif.exe

@@ -13,11 +13,18 @@ fn main() {
         for path in entries {
             let relative = path.strip_prefix(&source).unwrap();
             println!("cargo:rerun-if-changed={}", path.display());
-            let absolute = path.canonicalize().expect("failed to resolve tool file path");
-            generated.push_str(&format!("({:?}, include_bytes!({:?})),\n", relative.to_string_lossy().replace('\\', "/"), absolute));
+            let absolute = path
+                .canonicalize()
+                .expect("failed to resolve tool file path");
+            generated.push_str(&format!(
+                "({:?}, include_bytes!({:?})),\n",
+                relative.to_string_lossy().replace('\\', "/"),
+                absolute
+            ));
         }
         generated.push_str("];\n");
-        std::fs::write(out.join("embedded_tools.rs"), generated).expect("failed to generate embedded tools source");
+        std::fs::write(out.join("embedded_tools.rs"), generated)
+            .expect("failed to generate embedded tools source");
     }
 
     #[cfg(windows)]

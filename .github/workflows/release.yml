@@ -795,19 +795,52 @@ jobs:
       - name: Build executable
         run: cargo build --release
 
-      - name: Verify executable
+      - name: Package application and media tools
         shell: pwsh
         run: |
-          $exe = "target\release\webm2gif.exe"
-          if (-not (Test-Path $exe)) { throw "Build failed: $exe not found" }
-          $size = (Get-Item $exe).Length / 1MB
-          Write-Host "Build succeeded: $exe ($('{0:N2}' -f $size) MB)"
+          $ErrorActionPreference = "Stop"
+          $package = Join-Path $PWD "target\release\package"
+          $tools = Join-Path $package "tools"
+          $null = New-Item -ItemType Directory -Force -Path $tools
+          Copy-Item "target\release\webm2gif.exe" $package
+
+          # ImageMagick's official Windows portable archive.
+          $imArchive = Join-Path $env:TEMP "imagemagick.7z"
+          $imExtract = Join-Path $env:TEMP "imagemagick-extract"
+          Invoke-WebRequest "https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/ImageMagick-7.1.2-34-portable-Q16-x64.7z" -OutFile $imArchive
+          $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue).Source
+          if (-not $sevenZip) { $sevenZip = "C:\Program Files\7-Zip\7z.exe" }
+          if (-not (Test-Path $sevenZip)) { throw "7-Zip is required to unpack the ImageMagick portable archive." }
+          & $sevenZip x $imArchive "-o$imExtract" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract ImageMagick portable archive." }
+          $magick = Get-ChildItem $imExtract -Filter "magick.exe" -Recurse | Select-Object -First 1
+          if (-not $magick) { throw "magick.exe was not found in the ImageMagick archive." }
+          $imRoot = $magick.Directory.FullName
+          Copy-Item $imRoot (Join-Path $tools "ImageMagick") -Recurse
+
+          # Gyan.dev Windows essentials build, linked by ffmpeg.org.
+          $ffArchive = Join-Path $env:TEMP "ffmpeg.zip"
+          $ffExtract = Join-Path $env:TEMP "ffmpeg-extract"
+          Invoke-WebRequest "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $ffArchive
+          Expand-Archive $ffArchive $ffExtract -Force
+          $ffmpeg = Get-ChildItem $ffExtract -Filter "ffmpeg.exe" -Recurse | Select-Object -First 1
+          if (-not $ffmpeg) { throw "ffmpeg.exe was not found in the FFmpeg archive." }
+          Copy-Item $ffmpeg.Directory.FullName (Join-Path $tools "ffmpeg") -Recurse
+          $ffRoot = $ffmpeg.Directory.Parent.FullName
+          $licenses = Join-Path $tools "ffmpeg\licenses"
+          $null = New-Item -ItemType Directory -Force -Path $licenses
+          Get-ChildItem $ffRoot -File | Where-Object { $_.Name -match '^(LICENSE|COPYING)' } | Copy-Item -Destination $licenses
+
+          $zip = Join-Path $PWD "target\release\webm2gif-windows-x64.zip"
+          Compress-Archive -Path (Join-Path $package "*") -DestinationPath $zip -CompressionLevel Optimal -Force
+          $size = (Get-Item $zip).Length / 1MB
+          Write-Host "Portable package created: $zip ($('{0:N2}' -f $size) MB)"
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v7
         with:
           name: webm2gif
-          path: target/release/webm2gif.exe
+          path: target/release/webm2gif-windows-x64.zip
           retention-days: 1
 
   # ==================================================================
@@ -854,4 +887,4 @@ jobs:
           name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true
           files: |
-            target/release/webm2gif.exe
+            dist/webm2gif-windows-x64.zip

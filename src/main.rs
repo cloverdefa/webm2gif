@@ -75,7 +75,7 @@ impl App {
                         .unwrap_or("")
                         .to_lowercase()
                         .as_str(),
-                    "webm" | "webp"
+                    "webm" | "webp" | "mp4"
                 )
             })
             .map(|e| e.path().to_path_buf())
@@ -154,7 +154,7 @@ impl App {
             files.retain(|path| {
                 path.extension()
                     .and_then(|x| x.to_str())
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("webm"))
+                    .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "webm" | "mp4"))
             });
         }
         if files.is_empty() {
@@ -162,12 +162,12 @@ impl App {
                 text: self
                     .tr(
                         if self.clip_mode {
-                            "未找到 WebM 影片。"
+                            "未找到 WebM 或 MP4 影片。"
                         } else {
                             "未找到可轉換的檔案。"
                         },
                         if self.clip_mode {
-                            "No WebM videos found."
+                            "No WebM or MP4 videos found."
                         } else {
                             "No convertible files found."
                         },
@@ -188,7 +188,13 @@ impl App {
         } else {
             None
         };
-        let magick = if clip_range.is_none() {
+        let needs_magick = clip_range.is_none()
+            && files.iter().any(|path| {
+                path.extension()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|ext| !ext.eq_ignore_ascii_case("mp4"))
+            });
+        let magick = if needs_magick {
             let Some(path) = Self::magick() else {
                 self.logs.push(Entry {
                     text: self
@@ -205,13 +211,19 @@ impl App {
         } else {
             None
         };
-        let ffmpeg = if clip_range.is_some() {
+        let needs_ffmpeg = clip_range.is_some()
+            || files.iter().any(|path| {
+                path.extension()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
+            });
+        let ffmpeg = if needs_ffmpeg {
             let Some(path) = Self::ffmpeg() else {
                 self.logs.push(Entry {
                     text: self
                         .tr(
-                            "片段轉換需要 FFmpeg，請先安裝並加入 PATH。",
-                            "Clip conversion requires FFmpeg. Install it and add it to PATH.",
+                            "MP4 與影片片段轉換需要 FFmpeg，請先安裝並加入 PATH。",
+                            "MP4 and clip conversion require FFmpeg. Install it and add it to PATH.",
                         )
                         .into(),
                     kind: "err",
@@ -255,48 +267,29 @@ impl App {
                 let output = dir
                     .join(input.file_stem().unwrap_or_default())
                     .with_extension("gif");
-                let result = if let Some((start, end)) = clip_range {
-                    let is_webm = input
-                        .extension()
-                        .and_then(|x| x.to_str())
-                        .unwrap_or("")
-                        .eq_ignore_ascii_case("webm");
-                    if !is_webm {
-                        Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "Clip mode supports WebM video files only",
-                        ))
-                    } else {
-                        let height_filter = height
-                            .map(|h| format!("scale=-1:{h}:flags=lanczos"))
-                            .unwrap_or_else(|| "scale=iw:ih".into());
-                        let filter = format!(
-                            "fps=15,{height_filter},split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer[out]"
-                        );
-                        Command::new(ffmpeg.as_ref().unwrap())
-                            .args([
-                                "-hide_banner",
-                                "-loglevel",
-                                "error",
-                                "-y",
-                                "-ss",
-                                &start.to_string(),
-                                "-i",
-                            ])
-                            .arg(&input)
-                            .args([
-                                "-t",
-                                &(end - start).to_string(),
-                                "-filter_complex",
-                                &filter,
-                                "-map",
-                                "[out]",
-                                "-loop",
-                                "0",
-                            ])
-                            .arg(&output)
-                            .output()
+                let is_mp4 = input
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"));
+                let result = if clip_range.is_some() || is_mp4 {
+                    let height_filter = height
+                        .map(|h| format!("scale=-1:{h}:flags=lanczos"))
+                        .unwrap_or_else(|| "scale=iw:ih".into());
+                    let filter = format!(
+                        "fps=15,{height_filter},split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer[out]"
+                    );
+                    let mut cmd = Command::new(ffmpeg.as_ref().unwrap());
+                    cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
+                    if let Some((start, _)) = clip_range {
+                        cmd.args(["-ss", &start.to_string()]);
                     }
+                    cmd.arg("-i").arg(&input);
+                    if let Some((start, end)) = clip_range {
+                        cmd.args(["-t", &(end - start).to_string()]);
+                    }
+                    cmd.args(["-filter_complex", &filter, "-map", "[out]", "-loop", "0"])
+                        .arg(&output)
+                        .output()
                 } else {
                     let mut cmd = Command::new(magick.as_ref().unwrap());
                     cmd.arg(&input);
@@ -437,7 +430,7 @@ impl eframe::App for App {
                     if !narrow {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             egui::Frame::new().fill(egui::Color32::from_rgb(225, 245, 239)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(11, 6)).show(ui, |ui| {
-                                ui.label(egui::RichText::new("WEBM  →  GIF").size(12.).strong().color(egui::Color32::from_rgb(0, 105, 82)));
+                                ui.label(egui::RichText::new("WEBM / MP4 / WEBP  →  GIF").size(11.).strong().color(egui::Color32::from_rgb(0, 105, 82)));
                             });
                         });
                     }
@@ -518,7 +511,7 @@ impl eframe::App for App {
                             ui.label(self.tr("結束（秒）", "End (sec)"));
                             ui.add(egui::TextEdit::singleline(&mut self.clip_end).desired_width(72.));
                         });
-                        ui.label(egui::RichText::new(self.tr("片段模式支援 WebM，並需要已安裝的 FFmpeg。", "Clip mode supports WebM and requires FFmpeg on your PATH.")).size(11.).color(egui::Color32::from_rgb(125, 135, 147)));
+                        ui.label(egui::RichText::new(self.tr("片段模式支援 WebM 與 MP4，並需要 FFmpeg。", "Clip mode supports WebM and MP4 and requires FFmpeg.")).size(11.).color(egui::Color32::from_rgb(125, 135, 147)));
                     }
                 });
 

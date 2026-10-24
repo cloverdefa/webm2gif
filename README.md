@@ -35,7 +35,7 @@ MP4 由 FFmpeg 轉換，片段模式支援 WebM 與 MP4，起訖時間以秒輸�
 cargo build --release
 ```
 
-執行檔位於 `target/release/webm2gif`（Windows 為 `webm2gif.exe`）。GitHub Release 提供 `webm2gif-windows-x64.zip` 可攜式套件，內含應用程式、ImageMagick、FFmpeg 與 FFmpeg 授權檔案；解壓縮後執行 `webm2gif.exe` 即可，無需另外安裝這兩項工具。
+執行檔位於 `target/release/webm2gif`（Windows 為 `webm2gif.exe`）。GitHub Release 提供的 `webm2gif-windows-x64.zip` 只含 `webm2gif.exe`；ImageMagick 與 FFmpeg 已嵌入執行檔，首次使用時會解壓到系統暫存資料夾，因此無需另外安裝這兩項工具。從原始碼自行建置的版本不會自動附帶這些工具，仍可使用 PATH 中已安裝的版本。
 
 ## 授權
 

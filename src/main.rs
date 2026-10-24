@@ -3,10 +3,15 @@ use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
     process::Command,
-    sync::mpsc::{self, Receiver},
+    sync::{mpsc::{self, Receiver}, OnceLock},
     thread,
 };
 use walkdir::WalkDir;
+
+#[cfg(embedded_tools)]
+mod embedded {
+    include!(concat!(env!("OUT_DIR"), "/embedded_tools.rs"));
+}
 
 #[derive(Clone)]
 struct Entry {
@@ -59,6 +64,40 @@ impl Default for App {
 }
 
 impl App {
+    #[cfg(embedded_tools)]
+    fn extract_embedded_tools(root: &Path) -> Option<()> {
+        for (relative, bytes) in embedded::EMBEDDED_TOOLS {
+            let destination = root.join(*relative);
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent).ok()?;
+            }
+            std::fs::write(destination, *bytes).ok()?;
+        }
+        Some(())
+    }
+
+    fn embedded_tools_dir() -> Option<PathBuf> {
+        static TOOLS: OnceLock<Option<PathBuf>> = OnceLock::new();
+        TOOLS.get_or_init(|| {
+            #[cfg(embedded_tools)]
+            {
+                let root = std::env::temp_dir().join(format!("webm2gif-tools-{}", env!("CARGO_PKG_VERSION")));
+                let magick = root.join("ImageMagick/magick.exe");
+                let ffmpeg = root.join("ffmpeg/ffmpeg.exe");
+                if magick.is_file() && ffmpeg.is_file() {
+                    return Some(root);
+                }
+                if std::fs::create_dir_all(&root).is_err() {
+                    return None;
+                }
+                Self::extract_embedded_tools(&root)?;
+                if magick.is_file() && ffmpeg.is_file() { Some(root) } else { None }
+            }
+            #[cfg(not(embedded_tools))]
+            { None }
+        }).clone()
+    }
+
     fn tr(&self, zh: &'static str, en: &'static str) -> &'static str {
         if self.zh { zh } else { en }
     }
@@ -82,6 +121,10 @@ impl App {
             .collect()
     }
     fn magick() -> Option<PathBuf> {
+        if let Some(root) = Self::embedded_tools_dir() {
+            let path = root.join("ImageMagick/magick.exe");
+            if path.is_file() { return Some(path); }
+        }
         if let Some(exe_dir) = std::env::current_exe()
             .ok()?
             .parent()
@@ -116,6 +159,10 @@ impl App {
         None
     }
     fn ffmpeg() -> Option<PathBuf> {
+        if let Some(root) = Self::embedded_tools_dir() {
+            let path = root.join("ffmpeg/ffmpeg.exe");
+            if path.is_file() { return Some(path); }
+        }
         if let Some(exe_dir) = std::env::current_exe().ok()?.parent() {
             let bundled = exe_dir.join("tools/ffmpeg").join(if cfg!(windows) {
                 "ffmpeg.exe"

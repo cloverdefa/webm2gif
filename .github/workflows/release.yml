@@ -792,17 +792,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build executable
-        run: cargo build --release
-
-      - name: Package application and media tools
+      - name: Download and prepare media tools
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $package = Join-Path $PWD "target\release\package"
-          $tools = Join-Path $package "tools"
+          $tools = Join-Path $PWD "target\release\tools"
           $null = New-Item -ItemType Directory -Force -Path $tools
-          Copy-Item "target\release\webm2gif.exe" $package
 
           # ImageMagick's official Windows portable archive.
           $imArchive = Join-Path $env:TEMP "imagemagick.7z"
@@ -831,10 +827,23 @@ jobs:
           $null = New-Item -ItemType Directory -Force -Path $licenses
           Get-ChildItem $ffRoot -File | Where-Object { $_.Name -match '^(LICENSE|COPYING)' } | Copy-Item -Destination $licenses
 
+          "WEBM2GIF_TOOLS_DIR=$tools" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build executable with embedded media tools
+        run: cargo build --release
+
+      - name: Package single executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $package = Join-Path $PWD "target\release\package"
+          $null = New-Item -ItemType Directory -Force -Path $package
+          Copy-Item "target\release\webm2gif.exe" $package
+
           $zip = Join-Path $PWD "target\release\webm2gif-windows-x64.zip"
           Compress-Archive -Path (Join-Path $package "*") -DestinationPath $zip -CompressionLevel Optimal -Force
           $size = (Get-Item $zip).Length / 1MB
-          Write-Host "Portable package created: $zip ($('{0:N2}' -f $size) MB)"
+          Write-Host "Single-executable package created: $zip ($('{0:N2}' -f $size) MB)"
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v7

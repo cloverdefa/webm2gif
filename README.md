@@ -2,7 +2,7 @@
 
 以 Rust 和 egui 製作的桌面工具，可批次將 `.webm`、`.webp` 與 `.mp4` 轉成 GIF。轉換由 [ImageMagick](https://imagemagick.org/) 執行，介面依系統語系提供繁體中文或英文。
 
-![Webm2Gif 片段轉 GIF 操作示意](IMG/demo.gif)
+![Webm2Gif 片段轉 GIF 操作示意](assets/demo.gif)
 
 ## 功能
 

@@ -840,6 +840,61 @@ jobs:
           path: target/release/webm2gif.exe
           retention-days: 1
 
+  build-linux:
+    name: Build Linux GUI App
+
+    needs:
+      - version
+
+    if: needs.version.outputs.should_release == 'true'
+
+    # Ubuntu 22.04 provides a glibc baseline suitable for Omarchy and WSL.
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout target commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.target_sha }}
+          fetch-depth: 0
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes pkg-config libx11-dev libxkbcommon-dev libwayland-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Linux GUI app
+        run: cargo build --release
+
+      - name: Package Linux app
+        run: |
+          mkdir -p dist/webm2gif-linux-x86_64
+          cp target/release/webm2gif dist/webm2gif-linux-x86_64/
+          cat > dist/webm2gif-linux-x86_64/README.txt <<'EOF'
+          Webm2Gif for Linux x86_64
+
+          Run ./webm2gif to start the GUI.
+
+          Runtime requirements:
+            - A graphical desktop (Omarchy desktop or WSLg)
+            - ImageMagick (`magick`; ImageMagick 6 `convert` is also supported)
+            - FFmpeg (`ffmpeg`) for MP4/MOV and clip conversion
+
+          Arch/Omarchy: sudo pacman -S imagemagick ffmpeg
+          Ubuntu/WSL:   sudo apt install imagemagick ffmpeg
+          EOF
+          tar -C dist -czf dist/webm2gif-linux-x86_64.tar.gz webm2gif-linux-x86_64
+
+      - name: Upload Linux app artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: webm2gif-linux-x86_64
+          path: dist/webm2gif-linux-x86_64.tar.gz
+          retention-days: 1
+
   # ==================================================================
   # Job 3: 建立 GitHub Release
   # ==================================================================
@@ -850,6 +905,7 @@ jobs:
     needs:
       - version
       - build
+      - build-linux
 
     if: needs.version.outputs.should_release == 'true'
 
@@ -866,6 +922,12 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: webm2gif
+          path: dist
+
+      - name: Download Linux GUI app artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: webm2gif-linux-x86_64
           path: dist
 
 
@@ -885,3 +947,4 @@ jobs:
           generate_release_notes: true
           files: |
             dist/webm2gif.exe
+            dist/webm2gif-linux-x86_64.tar.gz

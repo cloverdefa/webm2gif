@@ -29,6 +29,10 @@ cargo run --release
 macOS 可用 `brew install imagemagick` 安裝 ImageMagick；Debian/Ubuntu 可用 `sudo apt install imagemagick`。Windows 請安裝 ImageMagick 並確保 `magick.exe` 位於 PATH。
 MP4 與 MOV 由 FFmpeg 轉換，片段模式支援 WebM、MP4 與 MOV，起訖時間以秒輸入；例如開始 `2.5`、結束 `7` 會轉換 2.5 秒至 7 秒的內容。
 
+## Linux Release
+
+GitHub Release 會另外提供 `webm2gif-linux-x86_64.tar.gz`，適用於 Omarchy 和啟用 WSLg 的 WSL。解壓後執行 `./webm2gif`。需要桌面圖形環境、ImageMagick 與 FFmpeg；Omarchy 可用 `sudo pacman -S imagemagick ffmpeg` 安裝，Ubuntu/WSL 可用 `sudo apt install imagemagick ffmpeg` 安裝。程式支援 ImageMagick 7 的 `magick` 和 ImageMagick 6 的 `convert` 命令。
+
 ## 建置
 
 ```bash

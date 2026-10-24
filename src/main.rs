@@ -170,6 +170,11 @@ impl App {
         if let Ok(path) = which("magick") {
             return Some(path);
         }
+        // ImageMagick 6, still commonly packaged by Ubuntu releases used in WSL,
+        // exposes the converter as `convert` instead of `magick`.
+        if let Ok(path) = which("convert") {
+            return Some(path);
+        }
         None
     }
     fn ffmpeg() -> Option<PathBuf> {

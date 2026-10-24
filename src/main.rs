@@ -578,7 +578,11 @@ fn main() -> eframe::Result {
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([640., 760.])
-                .with_min_inner_size([520., 620.]),
+                .with_min_inner_size([520., 620.])
+                .with_icon(
+                    eframe::icon_data::from_png_bytes(include_bytes!("../assets/app-icon.png"))
+                        .expect("invalid app icon PNG"),
+                ),
             ..Default::default()
         },
         Box::new(|cc| {

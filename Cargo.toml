@@ -8,3 +8,6 @@ description = "Batch convert WebM and WebP files to GIF with ImageMagick"
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
 rfd = "0.15"
 walkdir = "2"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"

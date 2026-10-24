@@ -4,6 +4,8 @@
 
 ![Webm2Gif 片段轉 GIF 操作示意](assets/demo.gif)
 
+<img src="assets/app-icon.png" width="160" alt="Webm2Gif 動漫點陣 App icon">
+
 ## 功能
 
 - 遞迴搜尋來源資料夾中的 WebM、WebP、MP4 檔案並逐一轉換。

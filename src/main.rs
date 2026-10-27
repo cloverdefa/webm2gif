@@ -1,4 +1,7 @@
+#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 use eframe::egui;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -349,6 +352,7 @@ impl App {
                         "fps=15,{height_filter},split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer[out]"
                     );
                     let mut cmd = Command::new(ffmpeg.as_ref().unwrap());
+                    #[cfg(windows)] cmd.creation_flags(0x08000000);
                     cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
                     if let Some((start, _)) = clip_range {
                         cmd.args(["-ss", &start.to_string()]);
@@ -362,6 +366,7 @@ impl App {
                         .output()
                 } else {
                     let mut cmd = Command::new(magick.as_ref().unwrap());
+                    #[cfg(windows)] cmd.creation_flags(0x08000000);
                     cmd.arg(&input);
                     if let Some(h) = height {
                         cmd.args(["-resize", &format!("x{h}")]);

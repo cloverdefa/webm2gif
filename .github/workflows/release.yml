@@ -849,7 +849,7 @@ jobs:
     if: needs.version.outputs.should_release == 'true'
 
     # Ubuntu 22.04 provides a glibc baseline suitable for Omarchy and WSL.
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout target commit

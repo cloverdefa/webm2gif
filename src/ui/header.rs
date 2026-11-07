@@ -16,7 +16,13 @@ impl App {
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // 語言切換
-                if ui.small_button(if self.zh { "EN" } else { "中文" }).clicked() {
+                let lang_label = if self.zh { "EN" } else if self.cjk_font { "中文" } else { "ZH" };
+                let lang_button = egui::Button::new(lang_label).small();
+                if ui
+                    .add_enabled(self.zh || self.cjk_font, lang_button)
+                    .on_disabled_hover_text("No CJK font found. Install fonts-noto-cjk to enable Chinese.")
+                    .clicked()
+                {
                     self.zh = !self.zh;
                 }
                 self.version_button(ui);

@@ -27,8 +27,8 @@ fn main() -> eframe::Result {
             ..Default::default()
         },
         Box::new(|cc| {
-            theme::configure_fonts(&cc.egui_ctx);
-            Ok(Box::new(App::new(&cc.egui_ctx)))
+            let has_cjk_font = theme::configure_fonts(&cc.egui_ctx);
+            Ok(Box::new(App::new(&cc.egui_ctx, has_cjk_font)))
         }),
     )
 }

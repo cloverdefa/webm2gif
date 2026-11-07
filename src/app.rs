@@ -16,6 +16,8 @@ use walkdir::WalkDir;
 
 pub struct App {
     pub zh: bool,
+    /// 是否成功載入 CJK 字型；沒有的話只能用英文介面。
+    pub cjk_font: bool,
     pub files: Vec<PathBuf>,
     /// 最近一次是以「單一資料夾」選擇來源時記錄，僅用於顯示路徑
     pub source_folder: Option<PathBuf>,
@@ -43,6 +45,7 @@ impl Default for App {
             // Windows 不會設定 LANG，以環境變數偵測會永遠落到英文，
             // 所以預設直接用中文，標題列右上角可切換。
             zh: true,
+            cjk_font: true,
             files: vec![],
             source_folder: None,
             resize: false,
@@ -66,8 +69,10 @@ impl Default for App {
 }
 
 impl App {
-    pub fn new(ctx: &egui::Context) -> Self {
+    pub fn new(ctx: &egui::Context, has_cjk_font: bool) -> Self {
         let mut app = Self::default();
+        app.cjk_font = has_cjk_font;
+        app.zh = has_cjk_font;
         // 啟動時靜默檢查一次；失敗或已是最新都不打擾使用者。
         app.updater.check(ctx, true);
         app

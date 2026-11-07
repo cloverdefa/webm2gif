@@ -8,6 +8,16 @@ description = "Batch convert WebM and WebP files to GIF with ImageMagick"
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
 rfd = "0.15"
 walkdir = "2"
+# ── 自動更新 ──
+serde = { version = "1", features = ["derive"] }
+ureq = { version = "2", features = ["json"] }
+self-replace = "1"
+sha2 = "0.10"
+
+# Linux 的發佈檔是 .tar.gz，需要解壓
+[target.'cfg(unix)'.dependencies]
+flate2 = "1"
+tar = "0.4"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1.12"

@@ -1,7 +1,17 @@
 fn main() {
     println!("cargo:rerun-if-changed=assets/app-icon.ico");
     println!("cargo:rerun-if-env-changed=WEBM2GIF_TOOLS_DIR");
+    println!("cargo:rerun-if-env-changed=WEBM2GIF_VERSION");
     println!("cargo:rustc-check-cfg=cfg(embedded_tools)");
+
+    // 應用程式版本：CI 發佈時由 release tag 傳入 WEBM2GIF_VERSION（可帶 v 前綴），
+    // 本機開發則退回 Cargo.toml 的 version。程式內以 env!("APP_VERSION") 讀取。
+    let version = std::env::var("WEBM2GIF_VERSION")
+        .ok()
+        .map(|v| v.trim().trim_start_matches(['v', 'V']).to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| std::env::var("CARGO_PKG_VERSION").unwrap());
+    println!("cargo:rustc-env=APP_VERSION={version}");
 
     if let Ok(source) = std::env::var("WEBM2GIF_TOOLS_DIR") {
         println!("cargo:rustc-cfg=embedded_tools");

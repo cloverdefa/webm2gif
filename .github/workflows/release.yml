@@ -25,7 +25,7 @@ on:
 # ====================================================================
 
 permissions:
-  contents: write
+  contents: read
 
 
 # ====================================================================
@@ -793,6 +793,9 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+
       - name: Download and prepare media tools
         shell: pwsh
         run: |
@@ -830,7 +833,11 @@ jobs:
 
           "WEBM2GIF_TOOLS_DIR=$tools" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # WEBM2GIF_VERSION 由 build.rs 讀取並寫入 APP_VERSION，
+      # 程式內的「檢查更新」靠它判斷目前版本。
       - name: Build executable with embedded media tools
+        env:
+          WEBM2GIF_VERSION: ${{ needs.version.outputs.version }}
         run: cargo build --release
 
       - name: Upload executable artifact
@@ -849,7 +856,7 @@ jobs:
     if: needs.version.outputs.should_release == 'true'
 
     # Ubuntu 22.04 provides a glibc baseline suitable for Omarchy and WSL.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout target commit
@@ -866,7 +873,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+
       - name: Build Linux GUI app
+        env:
+          WEBM2GIF_VERSION: ${{ needs.version.outputs.version }}
         run: cargo build --release
 
       - name: Package Linux app
@@ -910,6 +922,10 @@ jobs:
     if: needs.version.outputs.should_release == 'true'
 
     runs-on: ubuntu-latest
+
+    # 只有建立 Release 與 tag 需要寫入權限
+    permissions:
+      contents: write
 
 
     steps:

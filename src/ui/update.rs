@@ -1,6 +1,6 @@
 //! 更新橫幅：有新版／下載中／已安裝／失敗時顯示在標題列下方。
 
-use super::{ACCENT, ACCENT_DARK, HINT, MUTED, card, section_label};
+use super::{ACCENT, ACCENT_DARK, HINT, card, section_label};
 use crate::{
     app::App,
     platform,
@@ -40,16 +40,6 @@ impl App {
                         format!("Version v{} is available (current v{CURRENT_VERSION})", info.version)
                     };
                     ui.label(egui::RichText::new(title).size(15.).strong().color(ACCENT_DARK));
-                    if !info.notes.trim().is_empty() {
-                        ui.add_space(4.);
-                        egui::CollapsingHeader::new(self.tr("更新內容", "Release notes"))
-                            .id_salt("update_notes")
-                            .show(ui, |ui| {
-                                egui::ScrollArea::vertical().max_height(120.).show(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(info.notes.trim()).size(12.).color(MUTED)).wrap());
-                                });
-                            });
-                    }
                     ui.add_space(8.);
                     ui.horizontal_wrapped(|ui| {
                         if info.asset.is_some() {

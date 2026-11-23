@@ -1,12 +1,16 @@
 //! 從 GitHub Releases 檢查新版本，並下載、驗證、替換目前執行檔。
 //!
+//! 不使用 api.github.com（有速率限制），只用一般的 github.com 網址：
+//!   * 最新版本：請求 `/releases/latest`，從 302 的 `Location` 讀出 tag。
+//!   * 檔案存在與大小：對 `/releases/download/<tag>/<asset>` 送 HEAD。
+//!   * 完整性：選用的 `<asset>.sha256` 側檔；沒有就略過，仍會檢查檔頭。
+//!
 //! 發佈資產命名（見 release.yml）：
 //!   Windows x86_64 : `webm2gif.exe`
 //!   Linux   x86_64 : `webm2gif-linux-x86_64.tar.gz`（內含 webm2gif-linux-x86_64/webm2gif）
 //! 其他平台（macOS、aarch64 Pi）沒有對應檔案，只提示新版並引導到下載頁。
 
 use eframe::egui;
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     fs::File,
@@ -21,31 +25,21 @@ use std::{
 /// 目前版本。CI 以 WEBM2GIF_VERSION 傳入 tag，本機開發則為 Cargo.toml 的 version。
 pub const CURRENT_VERSION: &str = env!("APP_VERSION");
 pub const RELEASES_PAGE: &str = "https://github.com/cloverdefa/webm2gif/releases/latest";
-const API_LATEST: &str = "https://api.github.com/repos/cloverdefa/webm2gif/releases/latest";
+const TAG_PAGE_PREFIX: &str = "https://github.com/cloverdefa/webm2gif/releases/tag/";
 /// 只信任本 repo 的 release 下載網址，避免被導向其他來源。
 const DOWNLOAD_PREFIX: &str = "https://github.com/cloverdefa/webm2gif/releases/download/";
 
-#[derive(Deserialize)]
-struct GhRelease {
-    tag_name: String,
-    html_url: String,
-    body: Option<String>,
-    assets: Vec<GhAsset>,
-}
+/// 下載時每累積這麼多位元組回報一次進度。
+const PROGRESS_STEP: u64 = 512 * 1024;
+const READ_BUF_SIZE: usize = 64 * 1024;
 
-#[derive(Deserialize)]
-struct GhAsset {
-    name: String,
-    browser_download_url: String,
-    size: u64,
-    /// GitHub 會提供 "sha256:<hex>"；舊資產可能沒有。
-    digest: Option<String>,
-}
+// ───────────────────────── 型別 ─────────────────────────
 
 #[derive(Clone, Debug)]
 pub struct AssetInfo {
     pub name: String,
     pub url: String,
+    /// HEAD 取不到大小時為 0；下載時會改用回應的 Content-Length。
     pub size: u64,
     pub sha256: Option<String>,
 }
@@ -53,7 +47,6 @@ pub struct AssetInfo {
 #[derive(Clone, Debug)]
 pub struct ReleaseInfo {
     pub version: String,
-    pub notes: String,
     pub page: String,
     /// 目前平台可自動安裝的檔案；None 代表只能手動下載。
     pub asset: Option<AssetInfo>,
@@ -77,6 +70,8 @@ enum Msg {
     Installed(Result<(), String>),
 }
 
+// ───────────────────────── Updater ─────────────────────────
+
 pub struct Updater {
     pub state: State,
     /// 啟動時記下執行檔路徑：Linux 替換後 current_exe() 會變成 "(deleted)"。
@@ -85,6 +80,12 @@ pub struct Updater {
     /// 靜默檢查（啟動時）：失敗或已是最新都回到 Idle，不顯示任何訊息。
     silent: bool,
     pending_version: Option<String>,
+}
+
+impl Default for Updater {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Updater {
@@ -102,18 +103,28 @@ impl Updater {
         matches!(self.state, State::Checking | State::Installing { .. })
     }
 
+    /// 在背景執行緒開啟 channel，worker 結束後會自動請求重繪。
+    fn spawn_worker<F>(&mut self, ctx: &egui::Context, work: F)
+    where
+        F: FnOnce(mpsc::Sender<Msg>) + Send + 'static,
+    {
+        let (tx, rx) = mpsc::channel();
+        self.rx = Some(rx);
+        let ctx = ctx.clone();
+        thread::spawn(move || {
+            work(tx);
+            ctx.request_repaint();
+        });
+    }
+
     pub fn check(&mut self, ctx: &egui::Context, silent: bool) {
         if self.busy() {
             return;
         }
         self.silent = silent;
         self.state = State::Checking;
-        let (tx, rx) = mpsc::channel();
-        self.rx = Some(rx);
-        let ctx = ctx.clone();
-        thread::spawn(move || {
+        self.spawn_worker(ctx, |tx| {
             let _ = tx.send(Msg::Checked(fetch_latest()));
-            ctx.request_repaint();
         });
     }
 
@@ -130,18 +141,14 @@ impl Updater {
             done: 0,
             total: asset.size,
         };
-        let (tx, rx) = mpsc::channel();
-        self.rx = Some(rx);
-        let ctx = ctx.clone();
-        thread::spawn(move || {
+        let progress_ctx = ctx.clone();
+        self.spawn_worker(ctx, move |tx| {
             let progress_tx = tx.clone();
-            let progress_ctx = ctx.clone();
             let result = install_asset(&asset, |done, total| {
                 let _ = progress_tx.send(Msg::Progress { done, total });
                 progress_ctx.request_repaint();
             });
             let _ = tx.send(Msg::Installed(result));
-            ctx.request_repaint();
         });
     }
 
@@ -167,40 +174,41 @@ impl Updater {
         let Some(rx) = &self.rx else {
             return;
         };
-        let mut msgs = Vec::new();
-        while let Ok(m) = rx.try_recv() {
-            msgs.push(m);
-        }
-        for m in msgs {
-            match m {
-                Msg::Checked(Ok(Some(info))) => self.state = State::Available(info),
-                Msg::Checked(Ok(None)) => {
-                    self.state = if self.silent {
-                        State::Idle
-                    } else {
-                        State::UpToDate
-                    }
-                }
-                Msg::Checked(Err(e)) => {
-                    self.state = if self.silent {
-                        State::Idle
-                    } else {
-                        State::Failed(e)
-                    }
-                }
-                Msg::Progress { done, total } => {
-                    if matches!(self.state, State::Installing { .. }) {
-                        self.state = State::Installing { done, total };
-                    }
-                }
-                Msg::Installed(Ok(())) => {
-                    self.state = State::Installed(self.pending_version.take().unwrap_or_default())
-                }
-                Msg::Installed(Err(e)) => self.state = State::Failed(e),
-            }
+        let msgs: Vec<Msg> = rx.try_iter().collect();
+        for msg in msgs {
+            self.apply(msg);
         }
         if !self.busy() {
             self.rx = None;
+        }
+    }
+
+    fn apply(&mut self, msg: Msg) {
+        match msg {
+            Msg::Checked(Ok(Some(info))) => self.state = State::Available(info),
+            Msg::Checked(Ok(None)) => {
+                self.state = if self.silent {
+                    State::Idle
+                } else {
+                    State::UpToDate
+                };
+            }
+            Msg::Checked(Err(e)) => {
+                self.state = if self.silent {
+                    State::Idle
+                } else {
+                    State::Failed(e)
+                };
+            }
+            Msg::Progress { done, total } => {
+                if matches!(self.state, State::Installing { .. }) {
+                    self.state = State::Installing { done, total };
+                }
+            }
+            Msg::Installed(Ok(())) => {
+                self.state = State::Installed(self.pending_version.take().unwrap_or_default());
+            }
+            Msg::Installed(Err(e)) => self.state = State::Failed(e),
         }
     }
 }
@@ -226,17 +234,25 @@ fn is_newer(remote: &str, local: &str) -> bool {
 
 // ───────────────────────── 網路 ─────────────────────────
 
-fn agent() -> ureq::Agent {
+fn agent_builder() -> ureq::AgentBuilder {
     ureq::AgentBuilder::new()
         .user_agent(concat!("webm2gif/", env!("APP_VERSION")))
         .timeout_connect(Duration::from_secs(10))
         .timeout_read(Duration::from_secs(30))
-        .build()
+}
+
+fn agent() -> ureq::Agent {
+    agent_builder().build()
+}
+
+/// 不跟隨轉址，用來從 /releases/latest 的 Location 讀出最新 tag。
+fn no_redirect_agent() -> ureq::Agent {
+    agent_builder().redirects(0).build()
 }
 
 fn describe(e: ureq::Error) -> String {
     match e {
-        ureq::Error::Status(403 | 429, _) => "GitHub API rate limit reached, try again later".into(),
+        ureq::Error::Status(403 | 429, _) => "too many requests, try again later".into(),
         ureq::Error::Status(404, _) => "release not found".into(),
         ureq::Error::Status(code, _) => format!("HTTP {code}"),
         ureq::Error::Transport(t) => t.to_string(),
@@ -253,35 +269,65 @@ fn platform_asset() -> Option<&'static str> {
     }
 }
 
-fn fetch_latest() -> Result<Option<ReleaseInfo>, String> {
-    let release: GhRelease = agent()
-        .get(API_LATEST)
-        .set("Accept", "application/vnd.github+json")
-        .set("X-GitHub-Api-Version", "2022-11-28")
-        .call()
-        .map_err(describe)?
-        .into_json()
-        .map_err(|e| format!("invalid response: {e}"))?;
+/// 從 `.../releases/tag/v1.2.3` 取出 `v1.2.3`。
+fn tag_from_location(location: &str) -> Option<String> {
+    location
+        .rsplit_once("/tag/")
+        .map(|(_, tag)| tag.trim().to_owned())
+        .filter(|tag| !tag.is_empty())
+}
 
-    if !is_newer(&release.tag_name, CURRENT_VERSION) {
+/// 請求 /releases/latest，從 302 的 Location 取得最新 tag。
+fn latest_tag() -> Result<String, String> {
+    let resp = match no_redirect_agent().get(RELEASES_PAGE).call() {
+        Ok(r) => r,
+        // 不同 ureq 版本可能把 3xx 當成錯誤回傳，兩種都處理。
+        Err(ureq::Error::Status(code, r)) if (300..400).contains(&code) => r,
+        Err(e) => return Err(describe(e)),
+    };
+    let location = resp.header("Location").ok_or("release not found")?;
+    tag_from_location(location).ok_or_else(|| "cannot parse latest version".to_string())
+}
+
+/// 選用的 `<asset>.sha256` 側檔（格式 "<hex>  <name>"）；抓不到就回傳 None。
+fn fetch_sha256(asset_url: &str) -> Option<String> {
+    let text = agent()
+        .get(&format!("{asset_url}.sha256"))
+        .call()
+        .ok()?
+        .into_string()
+        .ok()?;
+    let hex = text.split_whitespace().next()?;
+    (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| hex.to_ascii_lowercase())
+}
+
+/// 用 HEAD 確認檔案存在並取得大小。
+fn probe_asset(tag: &str, name: &str) -> Option<AssetInfo> {
+    let url = format!("{DOWNLOAD_PREFIX}{tag}/{name}");
+    let head = agent().head(&url).call().ok()?;
+    let size = head
+        .header("Content-Length")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    let sha256 = fetch_sha256(&url);
+    Some(AssetInfo {
+        name: name.to_owned(),
+        url,
+        size,
+        sha256,
+    })
+}
+
+fn fetch_latest() -> Result<Option<ReleaseInfo>, String> {
+    let tag = latest_tag()?;
+    if !is_newer(&tag, CURRENT_VERSION) {
         return Ok(None);
     }
-    let asset = platform_asset()
-        .and_then(|name| release.assets.iter().find(|a| a.name == name))
-        .map(|a| AssetInfo {
-            name: a.name.clone(),
-            url: a.browser_download_url.clone(),
-            size: a.size,
-            sha256: a
-                .digest
-                .as_deref()
-                .and_then(|d| d.strip_prefix("sha256:"))
-                .map(str::to_owned),
-        });
+    let asset = platform_asset().and_then(|name| probe_asset(&tag, name));
     Ok(Some(ReleaseInfo {
-        version: release.tag_name.trim_start_matches(['v', 'V']).to_owned(),
-        notes: release.body.unwrap_or_default(),
-        page: release.html_url,
+        version: tag.trim_start_matches(['v', 'V']).to_owned(),
+        page: format!("{TAG_PAGE_PREFIX}{tag}"),
         asset,
     }))
 }
@@ -304,17 +350,32 @@ fn download_and_replace(
     dir: &Path,
     progress: &mut impl FnMut(u64, u64),
 ) -> Result<(), String> {
+    let download = dir.join(&asset.name);
+    let digest = download_file(asset, &download, progress)?;
+    verify_checksum(asset.sha256.as_deref(), &digest)?;
+
+    let new_exe = prepare_binary(&download, dir)?;
+    check_magic(&new_exe)?;
+    self_replace::self_replace(&new_exe).map_err(|e| format!("cannot replace executable: {e}"))
+}
+
+/// 下載到 `dest`，回傳內容的 SHA-256（小寫十六進位）。
+fn download_file(
+    asset: &AssetInfo,
+    dest: &Path,
+    progress: &mut impl FnMut(u64, u64),
+) -> Result<String, String> {
     let response = agent().get(&asset.url).call().map_err(describe)?;
     let total = response
         .header("Content-Length")
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(asset.size);
     let mut reader = response.into_reader();
-    let download = dir.join(&asset.name);
-    let mut file = File::create(&download).map_err(|e| format!("cannot write file: {e}"))?;
+    let write_err = |e: std::io::Error| format!("cannot write file: {e}");
+    let mut file = File::create(dest).map_err(write_err)?;
 
     let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
+    let mut buf = vec![0u8; READ_BUF_SIZE];
     let (mut done, mut last_report) = (0u64, 0u64);
     loop {
         let n = reader
@@ -323,32 +384,32 @@ fn download_and_replace(
         if n == 0 {
             break;
         }
-        file.write_all(&buf[..n])
-            .map_err(|e| format!("cannot write file: {e}"))?;
+        file.write_all(&buf[..n]).map_err(write_err)?;
         hasher.update(&buf[..n]);
         done += n as u64;
-        if done - last_report >= 512 * 1024 {
+        if done - last_report >= PROGRESS_STEP {
             last_report = done;
             progress(done, total);
         }
     }
-    file.flush().map_err(|e| format!("cannot write file: {e}"))?;
+    file.flush().map_err(write_err)?;
     drop(file);
     progress(done, total);
 
     if done == 0 || (total > 0 && done != total) {
         return Err("download incomplete".into());
     }
-    if let Some(expected) = &asset.sha256 {
-        let actual = format!("{:x}", hasher.finalize());
-        if !actual.eq_ignore_ascii_case(expected) {
-            return Err("checksum mismatch, update aborted".into());
-        }
-    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
 
-    let new_exe = prepare_binary(&download, dir)?;
-    check_magic(&new_exe)?;
-    self_replace::self_replace(&new_exe).map_err(|e| format!("cannot replace executable: {e}"))
+/// 有提供預期雜湊時才驗證；沒有則略過（之後仍會做檔頭檢查）。
+fn verify_checksum(expected: Option<&str>, actual: &str) -> Result<(), String> {
+    match expected {
+        Some(exp) if !actual.eq_ignore_ascii_case(exp) => {
+            Err("checksum mismatch, update aborted".into())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Linux：從 .tar.gz 取出 `webm2gif` 執行檔。
@@ -409,5 +470,24 @@ mod tests {
         assert!(!is_newer("v0.1.0", "0.1.0"));
         assert!(!is_newer("0.1.0", "0.2.0"));
         assert!(!is_newer("garbage", "0.1.0"));
+    }
+
+    #[test]
+    fn tag_parse() {
+        assert_eq!(
+            tag_from_location("https://github.com/cloverdefa/webm2gif/releases/tag/v0.2.0"),
+            Some("v0.2.0".into())
+        );
+        assert_eq!(
+            tag_from_location("https://github.com/cloverdefa/webm2gif/releases"),
+            None
+        );
+    }
+
+    #[test]
+    fn checksum_check() {
+        assert!(verify_checksum(None, "abc").is_ok());
+        assert!(verify_checksum(Some("ABC"), "abc").is_ok());
+        assert!(verify_checksum(Some("def"), "abc").is_err());
     }
 }
